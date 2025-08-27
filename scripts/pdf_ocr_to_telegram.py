@@ -5,6 +5,11 @@ import nest_asyncio
 from telegram import Bot
 from pdf2image import convert_from_path, PDFInfoNotInstalledError
 from PyPDF2 import PdfReader
+
+def fallback_text_extract(pdf_path):
+    reader = PdfReader(pdf_path)
+    return "\n\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+    
 import google.generativeai as genai
 
 # Allow nested asyncio

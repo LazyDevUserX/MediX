@@ -18,6 +18,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("models/gemini-1.5-pro")
 
+# Init Telegram bot once (so we can also send error alerts)
+bot = Bot(token=BOT_TOKEN)
+
 # ====== FUNCTIONS ======
 
 def extract_text_from_pdf(pdf_path):
@@ -28,14 +31,30 @@ def extract_text_from_pdf(pdf_path):
     all_text = []
     for i, img in enumerate(images, start=1):
         print(f"🔍 OCR on page {i}...")
+
         prompt = (
             "Extract all readable text from this page image. "
             "Output plain text only, no markdown, no special characters, "
             "formatted cleanly so it can be sent directly to Telegram. "
             "Avoid line breaks in the middle of sentences. Keep structure natural."
         )
-        result = model.generate_content([prompt, img])
-        all_text.append(result.text)
+
+        try:
+            result = model.generate_content([prompt, img])
+            text = result.text
+        except Exception as e:
+            print(f"❌ Gemini API error on page {i}: {e}")
+            try:
+                bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=f"⚠️ Gemini API quota reached or OCR failed on page {i}."
+                )
+            except Exception as te:
+                print(f"❌ Failed to notify Telegram: {te}")
+            text = ""
+
+        if text:
+            all_text.append(text)
 
     return "\n\n".join(all_text)
 
@@ -45,8 +64,6 @@ async def send_text_to_telegram(text):
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ BOT_TOKEN or CHAT_ID missing.")
         return
-
-    bot = Bot(token=BOT_TOKEN)
 
     # Split into chunks (Telegram has 4096 char limit)
     chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
@@ -68,7 +85,10 @@ async def main():
     pdf_path = pdf_files[0]
     text = extract_text_from_pdf(pdf_path)
 
-    await send_text_to_telegram(text)
+    if text.strip():
+        await send_text_to_telegram(text)
+    else:
+        print("⚠️ No text extracted from PDF.")
 
 if __name__ == "__main__":
     asyncio.run(main())

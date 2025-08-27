@@ -28,16 +28,15 @@ jobs:
       # Step 3: Install dependencies (system and Python)
       - name: Install Dependencies
         run: |
-          # Install poppler-utils, a system library needed to convert PDFs to images
+          # Install poppler-utils (for PDF conversion) and jq (for JSON processing)
           sudo apt-get update && sudo apt-get install -y poppler-utils jq
-          # Install required Python packages from your requirements.txt file
+          # Install required Python packages
           pip install python-telegram-bot nest_asyncio
       
       # Step 4: Find the newly added PDF file
       - name: Find New PDF
         id: find_pdf
         run: |
-          # This command finds the path of the PDF file from the latest commit
           PDF_FILE=$(git diff-tree --no-commit-id --name-only -r HEAD | grep '.pdf$' | head -n 1)
           if [ -z "$PDF_FILE" ]; then
             echo "No PDF file found in the latest commit. Exiting."
@@ -49,9 +48,7 @@ jobs:
       # Step 5: Convert the PDF to a series of PNG images
       - name: Convert PDF to Images
         run: |
-          # Creates a directory to store the images
           mkdir -p pdf_images
-          # Converts the PDF into PNG images, one for each page
           pdftoppm -png ${{ steps.find_pdf.outputs.pdf_path }} pdf_images/page
       
       # Step 6: Call Gemini API for each image and compile JSON
@@ -59,53 +56,45 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # The prompt is stored in a variable for clarity
           PROMPT_TEXT="Analyze the attached image, which is a page of multiple-choice questions (MCQs). Your task is to extract all MCQs and structure them into a specific JSON format. RULES: 1. Your entire output MUST be a valid JSON array of objects. 2. Do NOT include any explanatory text, comments, or markdown backticks (\`\`\`json ... \`\`\`) outside of the main JSON array. Your response must begin with \`[\` and end with \`]\`. 3. Each object in the array represents one MCQ and must have four keys: \"question\", \"options\", \"correct_option\", and \"explanation\". 4. The \"question\" value must be the full text of the question. 5. The \"options\" value must be a JSON array of strings, containing all the answer choices. 6. The \"correct_option\" value must be an integer representing the zero-indexed index of the correct answer in the \"options\" array. For example, if the first option is correct, the value is 0. 7. The \"explanation\" value should contain the provided explanation. Format any important terms using Telegram's MarkdownV2 style: surround bold text with asterisks (e.g., *bold*) and italic text with underscores (e.g., _italic_). Escape any special characters that conflict with MarkdownV2 by prepending a backslash (e.g., \\., \\-)."
           
-          # Initialize an empty array for the final combined JSON output
           all_mcqs="[]"
 
-          # Loop through each image generated from the PDF
           for img in pdf_images/*.png; do
             echo "Processing $img..."
-            # Base64 encode the image
             base64_image=$(base64 -w 0 "$img")
 
-            # Prepare the JSON payload for the Gemini API
-            api_payload=$(cat <<EOF
-            {
-              "contents": [
-                {
+            # **-- CORRECTED SECTION START --**
+            # Use jq to safely construct the JSON payload. This is more robust than using a heredoc.
+            api_payload=$(jq -n \
+              --arg prompt "$PROMPT_TEXT" \
+              --arg image_data "$base64_image" \
+              '{
+                "contents": [{
                   "parts": [
-                    { "text": "$PROMPT_TEXT" },
-                    { "inline_data": { "mime_type": "image/png", "data": "$base64_image" } }
+                    { "text": $prompt },
+                    { "inline_data": { "mime_type": "image/png", "data": $image_data } }
                   ]
-                }
-              ]
-            }
-EOF
-            )
-
-            # Call the Gemini API using curl
+                }]
+              }')
+            # **-- CORRECTED SECTION END --**
+            
             api_response=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=$GEMINI_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$api_payload")
 
-            # Extract the JSON text from the response and clean it up
             extracted_json=$(echo "$api_response" | jq -r '.candidates[0].content.parts[0].text' | sed 's/```json//g; s/```//g')
 
-            # Combine the JSON from this page with the main JSON array
             if [[ -n "$extracted_json" && "$extracted_json" != "null" ]]; then
               all_mcqs=$(jq -s '.[0] + .[1]' <(echo "$all_mcqs") <(echo "$extracted_json"))
             else
-              echo "Warning: No valid JSON returned for $img."
+              echo "Warning: No valid JSON returned for $img. Response: $api_response"
             fi
           done
 
-          # Save the final combined JSON to a file
           echo "$all_mcqs" > questions.json
           echo "✅ Successfully created questions.json"
-          cat questions.json # Print the file content for debugging
+          cat questions.json
 
       # Step 7: Run the Python script to send the polls to Telegram
       - name: Send Polls to Telegram

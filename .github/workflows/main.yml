@@ -1,35 +1,30 @@
-name: Auto Send Telegram Polls
+name: OCR PDF and Send to Telegram
 
 on:
-  # This action will trigger automatically on pushes to the main branch
-  # ONLY if the questions.json file was changed.
   push:
-    branches:
-      - main
     paths:
-      - 'questions.json'
-
-  # This allows you to run the workflow manually from the Actions tab
-  workflow_dispatch:
+      - "*.pdf"   # Trigger only when PDF files are uploaded/updated
 
 jobs:
-  send-polls-job:
+  ocr-job:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository Code
-        uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install Python Dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install google-generativeai python-telegram-bot pdf2image PyPDF2 nest_asyncio
 
-      - name: Run Poll Sender Script
+      - name: Run script
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python send_polls.py
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python scripts/pdf_ocr_to_telegram.py

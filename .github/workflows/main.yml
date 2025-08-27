@@ -19,8 +19,12 @@ jobs:
 
       - name: Install Poppler
         run: |
-          sudo apt-get update
-          sudo apt-get install -y poppler-utils
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Verify Poppler installation
+        run: |
+          which pdfinfo
+          pdfinfo -v
 
       - name: Install dependencies
         run: |
@@ -31,5 +35,6 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PATH: user/bin:$PATH
         run: |
           python scripts/pdf_ocr_to_telegram.py

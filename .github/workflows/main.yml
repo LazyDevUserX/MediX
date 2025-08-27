@@ -1,4 +1,4 @@
-name: PDF OCR to Telegram
+name: PDF to Telegram
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
       - "*.pdf"
 
 jobs:
-  ocr-job:
+  pdf-to-telegram:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -18,23 +18,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Poppler (pdfinfo)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y poppler-utils
-          echo "✅ Poppler installed:"
-          which pdfinfo
-          pdfinfo -v
-
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install google-generativeai python-telegram-bot pdf2image PyPDF2 nest_asyncio pillow
+          pip install google-generativeai python-telegram-bot PyPDF2 nest_asyncio
 
-      - name: Run OCR script
+      - name: Run PDF to Telegram script
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PATH: /usr/bin:$PATH
         run: python scripts/pdf_ocr_to_telegram.py

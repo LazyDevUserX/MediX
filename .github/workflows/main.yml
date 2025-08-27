@@ -1,4 +1,4 @@
-# Current YML name: OCR PDF and Send to Telegram
+name: OCR PDF and Send to Telegram
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4 # Updated to v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -20,21 +20,17 @@ jobs:
       - name: Install Poppler
         run: |
           sudo apt-get update && sudo apt-get install -y poppler-utils
-
-      - name: Verify Poppler installation
-        run: |
           which pdfinfo
           pdfinfo -v
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install google-generativeai python-telegram-bot pdf2image PyPDF2 nest_asyncio
 
-      - name: Run script
+      - name: Run OCR script
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # The PATH variable below was unnecessary and has been removed.
-        run: |
-          python scripts/pdf_ocr_to_telegram.py
+          PATH: /usr/bin:$PATH
+        run: python scripts/pdf_ocr_to_telegram.py

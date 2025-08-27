@@ -3,7 +3,8 @@ import glob
 import asyncio
 import nest_asyncio
 from telegram import Bot
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path, PDFInfoNotInstalledError
+from PyPDF2 import PdfReader
 import google.generativeai as genai
 
 # Allow nested asyncio
@@ -18,27 +19,28 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("models/gemini-1.5-pro")
 
-# Init Telegram bot once (so we can also send error alerts)
+# Init Telegram bot
 bot = Bot(token=BOT_TOKEN)
 
 # ====== FUNCTIONS ======
 
-def extract_text_from_pdf(pdf_path):
-    """Convert PDF to images and OCR each page with Gemini."""
-    print(f"📄 Processing PDF: {pdf_path}")
-    images = convert_from_path(pdf_path, dpi=200)
+def extract_text_with_gemini(pdf_path):
+    """Use pdf2image + Gemini OCR to extract text."""
+    print(f"📄 Processing PDF with Gemini OCR: {pdf_path}")
+    try:
+        images = convert_from_path(pdf_path, dpi=200)
+    except PDFInfoNotInstalledError:
+        print("❌ Poppler not installed or pdfinfo not found.")
+        return None
 
     all_text = []
     for i, img in enumerate(images, start=1):
-        print(f"🔍 OCR on page {i}...")
-
+        print(f"🔍 OCR page {i}...")
         prompt = (
             "Extract all readable text from this page image. "
             "Output plain text only, no markdown, no special characters, "
-            "formatted cleanly so it can be sent directly to Telegram. "
-            "Avoid line breaks in the middle of sentences. Keep structure natural."
+            "formatted cleanly for Telegram. Avoid line breaks mid-sentence."
         )
-
         try:
             result = model.generate_content([prompt, img])
             text = result.text
@@ -59,15 +61,29 @@ def extract_text_from_pdf(pdf_path):
     return "\n\n".join(all_text)
 
 
+def fallback_text_extract(pdf_path):
+    """Fallback: extract text from PDF using PyPDF2 if Poppler/Gemini fails."""
+    print(f"📄 Using PyPDF2 fallback for PDF: {pdf_path}")
+    try:
+        reader = PdfReader(pdf_path)
+        text = "\n\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+        return text
+    except Exception as e:
+        print(f"❌ PyPDF2 extraction failed: {e}")
+        try:
+            bot.send_message(chat_id=CHAT_ID, text=f"❌ Failed to extract PDF text with PyPDF2.")
+        except Exception as te:
+            print(f"❌ Failed to notify Telegram: {te}")
+        return ""
+
+
 async def send_text_to_telegram(text):
-    """Send text to Telegram in chunks under 4096 characters."""
-    if not BOT_TOKEN or not CHAT_ID:
-        print("❌ BOT_TOKEN or CHAT_ID missing.")
+    """Send text in chunks under Telegram limit (4096 chars)."""
+    if not text.strip():
+        print("⚠️ No text to send.")
         return
 
-    # Split into chunks (Telegram has 4096 char limit)
     chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-
     print(f"📤 Sending {len(chunks)} messages to Telegram...")
     for i, chunk in enumerate(chunks, start=1):
         await bot.send_message(chat_id=CHAT_ID, text=chunk)
@@ -75,20 +91,22 @@ async def send_text_to_telegram(text):
         await asyncio.sleep(2)
 
 
-# ====== MAIN EXECUTION ======
+# ====== MAIN ======
 async def main():
     pdf_files = glob.glob("*.pdf")
     if not pdf_files:
-        print("❌ No PDF file found.")
+        print("❌ No PDF file found in repo.")
         return
 
     pdf_path = pdf_files[0]
-    text = extract_text_from_pdf(pdf_path)
 
-    if text.strip():
-        await send_text_to_telegram(text)
-    else:
-        print("⚠️ No text extracted from PDF.")
+    text = extract_text_with_gemini(pdf_path)
+    if not text:
+        # Fallback if OCR failed
+        text = fallback_text_extract(pdf_path)
+
+    await send_text_to_telegram(text)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

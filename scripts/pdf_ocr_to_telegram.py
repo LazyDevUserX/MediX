@@ -1,22 +1,20 @@
 import os
-import json
 import asyncio
 import nest_asyncio
 from PyPDF2 import PdfReader
 from telegram import Bot
-from google.generativeai import client as gemini_client
+from google.generativeai import generativeai as ga
 
-# Allow nested asyncio (needed in some environments)
+# Allow nested asyncio (needed in some environments like Jupyter/GitHub Actions)
 nest_asyncio.apply()
 
 # ====== CONFIGURATION ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-QUESTIONS_FILE = "questions.json"  # optional if using JSON later
 
 # Initialize Gemini
-gemini_client.configure(api_key=GEMINI_API_KEY)
+ga.configure(api_key=GEMINI_API_KEY)
 
 # ====== FUNCTIONS ======
 
@@ -33,37 +31,38 @@ def extract_text_from_pdf(pdf_path):
         return ""
 
 async def send_to_gemini(prompt):
-    """Send text to Gemini for formatting for Telegram-compatible messages."""
+    """Send text to Gemini for formatting for Telegram-friendly messages."""
     try:
-        result = gemini_client.generate_content([prompt])
-        return result.text
+        response = ga.chat(messages=[{"role": "user", "content": prompt}])
+        return response.get("content", "")
     except Exception as e:
         print(f"❌ Gemini API error: {e}")
-        # Notify on Telegram if Gemini fails
         if BOT_TOKEN and CHAT_ID:
             bot = Bot(token=BOT_TOKEN)
-            bot.send_message(chat_id=CHAT_ID, text="⚠️ Gemini API quota reached or request failed!")
+            await bot.send_message(
+                chat_id=CHAT_ID,
+                text="⚠️ Gemini API quota reached or request failed!"
+            )
         return ""
 
 async def send_text_to_telegram(text):
-    """Send long text in chunks to avoid Telegram limits."""
+    """Send long text in chunks to Telegram to avoid limits (~4096 chars per message)."""
     if not BOT_TOKEN or not CHAT_ID:
         print("❌ BOT_TOKEN or CHAT_ID not set. Aborting.")
         return
 
     bot = Bot(token=BOT_TOKEN)
-    # Telegram limit per message ~4096 chars
-    chunk_size = 3500
+    chunk_size = 3500  # safe limit
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
         try:
             await bot.send_message(chat_id=CHAT_ID, text=chunk)
-            await asyncio.sleep(2)  # avoid flood limits
+            await asyncio.sleep(2)  # avoid Telegram flood limits
         except Exception as e:
             print(f"❌ Failed to send chunk: {e}")
 
 async def main():
-    # Look for all PDFs in repo root
+    # Look for all PDFs in the repo root
     pdf_files = [f for f in os.listdir(".") if f.lower().endswith(".pdf")]
     if not pdf_files:
         print("❌ No PDF files found.")
@@ -77,11 +76,14 @@ async def main():
             print(f"⚠️ No text found in {pdf_path}, skipping.")
             continue
 
-        # Optional: send to Gemini for formatting to Telegram-friendly text
-        prompt = f"Format the following text for sending to Telegram. Only use plain text and preserve questions/answers:\n\n{text}"
+        # Optional: send to Gemini for Telegram formatting
+        prompt = (
+            f"Format the following text for sending to Telegram. "
+            f"Only use plain text compatible with Telegram. Preserve questions/answers if present.\n\n{text}"
+        )
         formatted_text = await send_to_gemini(prompt)
 
-        # If Gemini failed, fallback to raw text
+        # Fallback to raw text if Gemini fails
         if not formatted_text.strip():
             formatted_text = text
 

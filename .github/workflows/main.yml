@@ -56,19 +56,25 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          # Storing the prompt in a variable is still fine.
           PROMPT_TEXT="Analyze the attached image, which is a page of multiple-choice questions (MCQs). Your task is to extract all MCQs and structure them into a specific JSON format. RULES: 1. Your entire output MUST be a valid JSON array of objects. 2. Do NOT include any explanatory text, comments, or markdown backticks (\`\`\`json ... \`\`\`) outside of the main JSON array. Your response must begin with \`[\` and end with \`]\`. 3. Each object in the array represents one MCQ and must have four keys: \"question\", \"options\", \"correct_option\", and \"explanation\". 4. The \"question\" value must be the full text of the question. 5. The \"options\" value must be a JSON array of strings, containing all the answer choices. 6. The \"correct_option\" value must be an integer representing the zero-indexed index of the correct answer in the \"options\" array. For example, if the first option is correct, the value is 0. 7. The \"explanation\" value should contain the provided explanation. Format any important terms using Telegram's MarkdownV2 style: surround bold text with asterisks (e.g., *bold*) and italic text with underscores (e.g., _italic_). Escape any special characters that conflict with MarkdownV2 by prepending a backslash (e.g., \\., \\-)."
+          
+          # **-- CORRECTED SECTION START --**
+          # Save the prompt to a file once, outside the loop, for efficiency.
+          echo "$PROMPT_TEXT" > prompt.txt
           
           all_mcqs="[]"
 
           for img in pdf_images/*.png; do
             echo "Processing $img..."
-            base64_image=$(base64 -w 0 "$img")
+            # Save the large base64 string directly to a temporary file instead of a shell variable.
+            base64 -w 0 "$img" > page.b64
 
-            # **-- CORRECTED SECTION START --**
-            # Use jq to safely construct the JSON payload. This is more robust than using a heredoc.
+            # Use jq's --rawfile option to read the prompt and image data from files.
+            # This avoids the "Argument list too long" error.
             api_payload=$(jq -n \
-              --arg prompt "$PROMPT_TEXT" \
-              --arg image_data "$base64_image" \
+              --rawfile prompt prompt.txt \
+              --rawfile image_data page.b64 \
               '{
                 "contents": [{
                   "parts": [
@@ -77,6 +83,9 @@ jobs:
                   ]
                 }]
               }')
+
+            # Clean up the temporary base64 file for the current page.
+            rm page.b64
             # **-- CORRECTED SECTION END --**
             
             api_response=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=$GEMINI_API_KEY" \
@@ -91,6 +100,9 @@ jobs:
               echo "Warning: No valid JSON returned for $img. Response: $api_response"
             fi
           done
+          
+          # Clean up the prompt file after the loop is finished.
+          rm prompt.txt
 
           echo "$all_mcqs" > questions.json
           echo "✅ Successfully created questions.json"

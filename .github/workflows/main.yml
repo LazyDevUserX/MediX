@@ -3,7 +3,7 @@ name: OCR PDF and Send to Telegram
 on:
   push:
     paths:
-      - "*.pdf"   # Trigger only when PDF files are uploaded/updated
+      - "*.pdf"
 
 jobs:
   ocr-job:
@@ -16,6 +16,11 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+
+      - name: Install Poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
 
       - name: Install dependencies
         run: |

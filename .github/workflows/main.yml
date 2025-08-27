@@ -1,4 +1,4 @@
-name: OCR PDF and Send to Telegram
+# Current YML name: OCR PDF and Send to Telegram
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Updated to v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -35,6 +35,6 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PATH: user/bin:$PATH
+          # The PATH variable below was unnecessary and has been removed.
         run: |
           python scripts/pdf_ocr_to_telegram.py

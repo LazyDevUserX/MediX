@@ -100,15 +100,14 @@ async def process_content():
                             explanation=None
                         )
                         # ** NEW LOGIC **
-                        # Now, send the full explanation in a follow-up text message as a spoiler
-                       await bot.send_message(
+                        # Now, send the full explanation in a follow-up text message
+                        await bot.send_message(
                             chat_id=CHAT_ID,
-                            text=f"💡 **Explanation:**\n\n{explanation_text}",
+                            text=f" **Explanation:**\n\n{explanation_text}",
                             parse_mode='Markdown'
                         )
-            else:
+                    else:
                         raise # Re-raise any other errors
-
 
             await asyncio.sleep(4)
 

@@ -99,12 +99,16 @@ async def process_content():
                             correct_option_id=item["correct_option"],
                             explanation=None
                         )
-                        # ** NEW LOGIC **
-                        # Now, send the full explanation in a follow-up text message
+                       # ** NEW LOGIC **
+                        # Now, send the full explanation in a follow-up text message as a spoiler
+                        spoiler_explanation = f"💡 *Explanation:*\n\n||{explanation_text}||"
+                        
                         await bot.send_message(
                             chat_id=CHAT_ID,
-                            text=f"💡 **Explanation:**\n\n||{explanation_text}||",
-                            parse_mode='MarkdownV2'
+                            text=spoiler_explanation,
+                            parse_mode='MarkdownV2' # Use MarkdownV2 for spoilers
+                        )
+                       
                         )
                     else:
                         raise # Re-raise any other errors

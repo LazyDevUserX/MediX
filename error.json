@@ -1,7 +1,7 @@
 [
     {
         "type": "message",
-        "text": "-- Starting Bot Stress Test --"
+        "text": "--- Starting Bot Stress Test ---"
     },
     {
         "type": "poll",

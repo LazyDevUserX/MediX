@@ -39,7 +39,7 @@ def load_items(file_path):
         return []
 
 async def send_error_to_telegram(bot, error_message):
-    """NEW: Sends a formatted error message to the Telegram channel."""
+    """Sends a formatted error message to the Telegram channel."""
     try:
         await bot.send_message(chat_id=CHAT_ID, text=f"🤖 BOT ERROR 🤖\n\n<pre>{error_message}</pre>", parse_mode='HTML')
     except Exception as e:
@@ -65,7 +65,7 @@ async def process_content():
 
     print("\nStarting to send content...")
     for i, item in enumerate(item_list, start=1):
-        content_type = item.get('type', 'poll') # Default to 'poll' if type is not specified
+        content_type = item.get('type', 'poll')
         print(f"--> Processing item {i} of {len(item_list)} (type: {content_type})...")
 
         try:
@@ -77,7 +77,6 @@ async def process_content():
                 explanation_text = item.get('explanation')
 
                 try:
-                    # First attempt: send with the explanation
                     await bot.send_poll(
                         chat_id=CHAT_ID,
                         question=question_text,
@@ -88,10 +87,9 @@ async def process_content():
                         explanation=explanation_text
                     )
                 except BadRequest as e:
-                    # NEW: ADVANCED ERROR HANDLING
-                    if "message is too long" in str(e).lower():
-                        print("⚠️ Warning: 'Message is too long'. Retrying without explanation.")
-                        # Second attempt: send without explanation
+                    if "message is too long" in str(e).lower() and explanation_text:
+                        print("⚠️ Warning: Explanation is too long. Sending it as a separate message.")
+                        # Send the poll again, but without the explanation
                         await bot.send_poll(
                             chat_id=CHAT_ID,
                             question=question_text,
@@ -99,13 +97,19 @@ async def process_content():
                             is_anonymous=True,
                             type="quiz",
                             correct_option_id=item["correct_option"],
-                            explanation=None # Remove explanation
+                            explanation=None
                         )
-                        await bot.send_message(chat_id=CHAT_ID, text=f"ℹ️ Note: The explanation for the previous poll was removed because it was too long.")
+                        # ** NEW LOGIC **
+                        # Now, send the full explanation in a follow-up text message
+                        await bot.send_message(
+                            chat_id=CHAT_ID,
+                            text=f"💡 **Explanation for the previous poll:**\n\n{explanation_text}",
+                            parse_mode='Markdown'
+                        )
                     else:
-                        raise # Re-raise other BadRequest errors
+                        raise # Re-raise any other errors
 
-            await asyncio.sleep(4) # Delay to avoid flood control limits
+            await asyncio.sleep(4)
 
         except Exception as e:
             error_details = f"Failed to send item #{i}.\nType: {content_type}\nError: {e}"

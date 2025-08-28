@@ -5,6 +5,7 @@ import json
 import glob
 from telegram import Bot
 from telegram.error import BadRequest
+from telegram.constants import ParseMode
 
 # Allow nested asyncio
 nest_asyncio.apply()
@@ -12,38 +13,37 @@ nest_asyncio.apply()
 # ====== CONFIGURATION ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID")
 
-# ====== FUNCTIONS ======
+# ====== HELPER FUNCTIONS ======
 
 def find_json_file():
     """Finds the first .json file in the repository's root directory."""
     json_files = glob.glob('*.json')
     if json_files:
-        print(f"✅ Found JSON file: {json_files[0]}")
         return json_files[0]
-    else:
-        print("❌ No .json file found in the repository.")
-        return None
+    return None
 
 def load_items(file_path):
-    """Loads items (polls or messages) from a specified JSON file."""
+    """Loads items from a specified JSON file."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            items = json.load(f)
-        print(f"✅ Successfully loaded {len(items)} items from {file_path}")
-        return items
-    except FileNotFoundError:
-        return []
-    except json.JSONDecodeError:
-        print(f"❌ Error: The file {file_path} is not a valid JSON file.")
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
         return []
 
-async def send_error_to_telegram(bot, error_message):
-    """Sends a formatted error message to the Telegram channel."""
+async def log_to_telegram(bot, message):
+    """Sends a log message to the dedicated log channel."""
+    if not LOG_CHANNEL_ID:
+        return
     try:
-        await bot.send_message(chat_id=CHAT_ID, text=f"🤖 BOT ERROR 🤖\n\n<pre>{error_message}</pre>", parse_mode='HTML')
+        # Escape characters for MarkdownV2
+        safe_message = message.replace('.', '\\.').replace('`', '\\`').replace('-', '\\-')
+        await bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"🤖 **Bot Log:**\n\n{safe_message}", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as e:
-        print(f"❌ CRITICAL: Failed to send error message to Telegram: {e}")
+        print(f"❌ CRITICAL: Failed to send log to Telegram: {e}")
+
+# ====== MAIN PROCESSING LOGIC ======
 
 async def process_content():
     """Main function to process and send all content from the JSON file."""
@@ -52,75 +52,90 @@ async def process_content():
         return
 
     bot = Bot(token=BOT_TOKEN)
-    json_file = find_json_file()
+    await log_to_telegram(bot, "Workflow started successfully.")
 
+    json_file = find_json_file()
     if not json_file:
-        await send_error_to_telegram(bot, "Could not find any .json file to process.")
+        error_msg = "Could not find any .json file to process."
+        print(f"❌ {error_msg}")
+        await log_to_telegram(bot, error_msg)
         return
 
     item_list = load_items(json_file)
     if not item_list:
-        await send_error_to_telegram(bot, f"File '{json_file}' is empty or invalid.")
+        error_msg = f"File '{json_file}' is empty or contains invalid JSON."
+        print(f"❌ {error_msg}")
+        await log_to_telegram(bot, error_msg)
         return
+        
+    log_start_msg = f"Found {len(item_list)} items in '{json_file}'. Starting to send content."
+    print(log_start_msg)
+    await log_to_telegram(bot, log_start_msg)
 
-    print("\nStarting to send content...")
     for i, item in enumerate(item_list, start=1):
         content_type = item.get('type', 'poll')
-        print(f"--> Processing item {i} of {len(item_list)} (type: {content_type})...")
+        print(f"--> Processing item {i} (type: {content_type})...")
 
         try:
             if content_type == 'message':
-                await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode='HTML')
+                await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode=ParseMode.HTML)
             
             elif content_type == 'poll':
-                question_text = f"[MediX]\n{item['question']}"
+                # ** NEW LOGIC: TWO-STEP SENDING **
+                question_text_message = f"[MediX]\n\n{item['question']}"
+                poll_question_placeholder = "⬆️ Cast your vote above ⬆️"
                 explanation_text = item.get('explanation')
 
+                # 1. Send the question first as a plain text message
+                await bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=question_text_message,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+                await asyncio.sleep(1) # Small delay between the text and poll
+
+                # 2. Send the poll with a placeholder question
                 try:
                     await bot.send_poll(
                         chat_id=CHAT_ID,
-                        question=question_text,
+                        question=poll_question_placeholder,
                         options=item["options"],
                         is_anonymous=True,
                         type="quiz",
                         correct_option_id=item["correct_option"],
-                        explanation=explanation_text
+                        explanation=explanation_text,
+                        explanation_parse_mode=ParseMode.MARKDOWN_V2
                     )
                 except BadRequest as e:
                     if "message is too long" in str(e).lower() and explanation_text:
-                        print("⚠️ Warning: Explanation is too long. Sending it as a separate message.")
-                        # Send the poll again, but without the explanation
+                        print("⚠️ Explanation too long. Sending as a spoiler message.")
                         await bot.send_poll(
                             chat_id=CHAT_ID,
-                            question=question_text,
+                            question=poll_question_placeholder,
                             options=item["options"],
                             is_anonymous=True,
                             type="quiz",
-                            correct_option_id=item["correct_option"],
-                            explanation=None
+                            correct_option_id=item["correct_option"]
                         )
-                       # ** NEW LOGIC **
-                        # Now, send the full explanation in a follow-up text message as a spoiler
-                        spoiler_explanation = f"💡 *Explanation:*\n\n||{explanation_text}||"
-                        
+                        spoiler_text = f"💡 *Explanation:*\n\n||{explanation_text}||"
                         await bot.send_message(
                             chat_id=CHAT_ID,
-                            text=spoiler_explanation,
-                            parse_mode='MarkdownV2' # Use MarkdownV2 for spoilers
-                        )
-                       
+                            text=spoiler_text,
+                            parse_mode=ParseMode.MARKDOWN_V2
                         )
                     else:
-                        raise # Re-raise any other errors
+                        raise
 
             await asyncio.sleep(4)
 
         except Exception as e:
-            error_details = f"Failed to send item #{i}.\nType: {content_type}\nError: {e}"
+            error_details = f"Failed to send item #{i}. Type: {content_type}. Error: {e}"
             print(f"❌ {error_details}")
-            await send_error_to_telegram(bot, error_details)
-
-    print("\n✅ Finished sending all content.")
+            await log_to_telegram(bot, error_details)
+    
+    final_log = f"✅ Finished sending all content from '{json_file}'."
+    print(final_log)
+    await log_to_telegram(bot, final_log)
 
 # ====== MAIN EXECUTION BLOCK ======
 if __name__ == "__main__":

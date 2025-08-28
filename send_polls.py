@@ -3,6 +3,7 @@ import nest_asyncio
 import os
 import json
 import glob
+import re
 from telegram import Bot
 from telegram.error import BadRequest
 from telegram.constants import ParseMode
@@ -19,10 +20,7 @@ LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID")
 
 def find_json_file():
     """Finds the first .json file in the repository's root directory."""
-    json_files = glob.glob('*.json')
-    if json_files:
-        return json_files[0]
-    return None
+    return next(iter(glob.glob('*.json')), None)
 
 def load_items(file_path):
     """Loads items from a specified JSON file."""
@@ -32,14 +30,22 @@ def load_items(file_path):
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
+def escape_markdown_v2(text: str) -> str:
+    """
+    NEW: Escapes characters for Telegram's MarkdownV2 parse mode.
+    This is the key fix for the '|' is reserved error.
+    """
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+
 async def log_to_telegram(bot, message):
     """Sends a log message to the dedicated log channel."""
     if not LOG_CHANNEL_ID:
         return
     try:
-        # Escape characters for MarkdownV2
-        safe_message = message.replace('.', '\\.').replace('`', '\\`').replace('-', '\\-')
-        await bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"🤖 **Bot Log:**\n\n{safe_message}", parse_mode=ParseMode.MARKDOWN_V2)
+        # We escape the message here to ensure the log itself doesn't fail
+        safe_message = escape_markdown_v2(message)
+        await bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"🤖 *Bot Log*\n\n{safe_message}", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as e:
         print(f"❌ CRITICAL: Failed to send log to Telegram: {e}")
 
@@ -52,9 +58,11 @@ async def process_content():
         return
 
     bot = Bot(token=BOT_TOKEN)
+    json_file = find_json_file()
+    
+    # Send initial log message
     await log_to_telegram(bot, "Workflow started successfully.")
 
-    json_file = find_json_file()
     if not json_file:
         error_msg = "Could not find any .json file to process."
         print(f"❌ {error_msg}")
@@ -78,30 +86,29 @@ async def process_content():
 
         try:
             if content_type == 'message':
+                # HTML is more forgiving for messages, so we can keep it here
                 await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode=ParseMode.HTML)
             
             elif content_type == 'poll':
-                # ** NEW LOGIC: TWO-STEP SENDING **
-                question_text_message = f"[MediX]\n\n{item['question']}"
+                # Use the escape function on the question text
+                escaped_question = escape_markdown_v2(item['question'])
+                question_text_message = f"*MediX*\n\n{escaped_question}"
                 poll_question_placeholder = "⬆️ Cast your vote above ⬆️"
                 explanation_text = item.get('explanation')
 
-                # 1. Send the question first as a plain text message
                 await bot.send_message(
                     chat_id=CHAT_ID,
                     text=question_text_message,
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
-                await asyncio.sleep(1) # Small delay between the text and poll
+                await asyncio.sleep(1)
 
-                # 2. Send the poll with a placeholder question
                 try:
                     await bot.send_poll(
                         chat_id=CHAT_ID,
                         question=poll_question_placeholder,
                         options=item["options"],
-                        is_anonymous=True,
-                        type="quiz",
+                        is_anonymous=True, type="quiz",
                         correct_option_id=item["correct_option"],
                         explanation=explanation_text,
                         explanation_parse_mode=ParseMode.MARKDOWN_V2
@@ -113,11 +120,12 @@ async def process_content():
                             chat_id=CHAT_ID,
                             question=poll_question_placeholder,
                             options=item["options"],
-                            is_anonymous=True,
-                            type="quiz",
+                            is_anonymous=True, type="quiz",
                             correct_option_id=item["correct_option"]
                         )
-                        spoiler_text = f"💡 *Explanation:*\n\n||{explanation_text}||"
+                        # Escape the explanation text as well before making it a spoiler
+                        escaped_explanation = escape_markdown_v2(explanation_text)
+                        spoiler_text = f"💡 *Explanation for the previous poll:*\n\n||{escaped_explanation}||"
                         await bot.send_message(
                             chat_id=CHAT_ID,
                             text=spoiler_text,

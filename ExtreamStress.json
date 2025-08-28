@@ -1,80 +1,58 @@
 [
     {
         "type": "message",
-        "text": "------------☢️ EXTREME STRESS TEST INITIATED ☢️------------"
+        "text": "--- Starting Bot Stress Test ---"
     },
     {
         "type": "poll",
-        "question": "1. Valid Poll (Baseline)",
-        "options": ["Works", "Doesn't Work"],
+        "question": "1 | This is a valid poll and should work fine.",
+        "options": ["Correct", "Wrong"],
         "correct_option": 0,
-        "explanation": "This should always work."
+        "explanation": "This is a test of a working poll."
     },
     {
         "type": "poll",
-        "question": "2. Question with every single special MarkdownV2 character: _*[]()~`>#+-=|{}.!",
-        "options": ["Escaped Properly", "Failed"],
+        "question": "2 | This poll is missing the 'options' key, which is required.",
         "correct_option": 0,
-        "explanation": "Tests the escape_markdown_v2() function thoroughly."
+        "explanation": "This should cause a KeyError in the script."
     },
     {
         "type": "poll",
-        "question": "3. Empty Question String",
-        "question": "",
-        "options": ["A", "B"],
-        "correct_option": 0
+        "question": "3 | This poll has too many options. Telegram allows a maximum of 10.",
+        "options": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
+        "correct_option": 0,
+        "explanation": "This should trigger a BadRequest error from Telegram."
     },
     {
         "type": "poll",
-        "question": "4. Poll with an empty options list.",
-        "options": [],
-        "correct_option": 0
-    },
-    {
-        "type": "poll",
-        "question": "5. Poll with duplicate options.",
-        "options": ["Same", "Same", "Different"],
-        "correct_option": 0
-    },
-    {
-        "type": "poll",
-        "question": "6. correct_option is a string instead of an integer.",
-        "options": ["A", "B"],
-        "correct_option": "0"
+        "question": "4 | The 'correct_option' (5) is out of bounds for the number of options available (3).",
+        "options": ["A", "B", "C"],
+        "correct_option": 5,
+        "explanation": "This will cause a 'Correct option ID is out of range' error."
     },
     {
         "type": "message",
-        "text": "7. <b>Bold, <i>Italic, <u>Underline, <s>Strikethrough</s></u></i></b>, <a href=\"https://google.com\">Link</a>, <code>inline code</code>, <pre>pre-formatted block</pre>."
+        "text": "5 | This message contains <b>unclosed HTML tags, which will cause a parsing error."
     },
     {
         "type": "poll",
-        "question": "8. Extremely long poll question designed to be sent as a text message. This text will go on and on, far exceeding the 300-character limit for a poll question itself, forcing the two-step sending process. It needs to be significantly long to ensure that the bot's logic correctly identifies it's not a poll-explanation length error but a question-length issue that the two-step process is designed to solve. We will add more text just to be safe. And more. And more. And even more text to finalize the test.",
-        "options": ["Sent as Text", "Failed"],
+        "question": "6 | This is an extremely long question designed to test Telegram's character limit for poll questions, which is currently 300 characters. By making this text incredibly verbose and unnecessarily lengthy, we can ensure that we are pushing the boundaries of the API. This verbosity will continue until we are absolutely certain that the character count has been exceeded by a significant margin, thereby triggering the 'Message is too long' error and testing the bot's ability to handle it gracefully without crashing the entire process.",
+        "options": ["Too long", "Just right"],
         "correct_option": 0
     },
     {
         "type": "poll",
-        "question": "9. Very long explanation to test the spoiler fallback.",
-        "options": ["Spoiler Worked", "Spoiler Failed"],
-        "correct_option": 0,
-        "explanation": "This is the test for the super long explanation fallback. The goal is to exceed the 200-character limit for poll explanations by a wide margin. This text must be long enough to trigger the 'message is too long' error from Telegram when sent within the explanation field of a poll. When this error is caught, the bot's logic should resend the poll without any explanation, and then immediately send this full text as a separate follow-up message formatted as a spoiler. This confirms the most advanced error-handling feature is working as intended."
+        "question": "7 | This poll has a very long explanation that should be sent as a follow-up message.",
+        "options": ["Option A", "Option B"],
+        "correct_option": 1,
+        "explanation": "This explanation is specifically crafted to be longer than the 200-character limit imposed by Telegram for poll explanations. It will test the bot's fallback mechanism, where it should fail to send the poll with the explanation, then successfully send the poll without it, and immediately follow up with a separate text message containing this full explanation. This tests the most complex part of the error-handling logic."
     },
     {
-        "type": "nonexistent_type",
-        "data": "10. This item has a completely unknown type."
-    },
-    {
-        "type": "poll",
-        "question": "11. Poll with only one option.",
-        "options": ["Only one"],
-        "correct_option": 0
+        "type": "invalid_type",
+        "text": "8 | This item has a custom 'type' that the script doesn't know how to handle."
     },
     {
         "type": "message",
-        "text": null
-    },
-    {
-        "type": "message",
-        "text": "13. Final message. Test complete."
+        "tezt": "9 | This message object has a typo in the 'text' key ('tezt'), which should cause a KeyError."
     }
 ]

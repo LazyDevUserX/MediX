@@ -1,7 +1,7 @@
 [
     {
         "type": "message",
-        "text": "--- New Quiz Starting Now --- \nGet Ready!"
+        "text": "--- New Quiz Starting Now --- \n       Get Ready!"
     },
     {
         "type": "poll",

@@ -103,8 +103,8 @@ async def process_content():
                         # Now, send the full explanation in a follow-up text message
                         await bot.send_message(
                             chat_id=CHAT_ID,
-                            text=f"💡 **Explanation for the previous poll:**\n\n{explanation_text}",
-                            parse_mode='Markdown'
+                            text=f"💡 **Explanation:**\n\n||{explanation_text}||",
+                            parse_mode='MarkdownV2'
                         )
                     else:
                         raise # Re-raise any other errors

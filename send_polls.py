@@ -31,11 +31,10 @@ def load_items(file_path):
         return []
 
 def escape_markdown_v2(text: str) -> str:
-    """
-    FULLY COMPLIANT: Escapes all special characters for Telegram's MarkdownV2.
-    """
+    """Escapes all special characters for Telegram's MarkdownV2."""
     if not isinstance(text, str):
         return ''
+    # Escape all characters telegram reserves for markdown V2
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
@@ -44,8 +43,8 @@ async def log_to_telegram(bot, message):
     if not LOG_CHANNEL_ID:
         return
     try:
-        safe_message = escape_markdown_v2(message)
-        await bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"🤖 *Bot Log*\n\n{safe_message}", parse_mode=ParseMode.MARKDOWN_V2)
+        # Use a simpler format for max reliability
+        await bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"🤖 Bot Log:\n\n{message}")
     except Exception as e:
         print(f"❌ CRITICAL: Failed to send log to Telegram: {e}")
 
@@ -58,10 +57,9 @@ async def process_content():
         return
 
     bot = Bot(token=BOT_TOKEN)
-    json_file = find_json_file()
-    
-    await log_to_telegram(bot, "Workflow started successfully.")
+    await log_to_telegram(bot, "✅ Workflow started successfully.")
 
+    json_file = find_json_file()
     if not json_file:
         error_msg = "Could not find any .json file to process."
         print(f"❌ {error_msg}")
@@ -84,7 +82,7 @@ async def process_content():
         print(f"--> Processing item {i} (type: {content_type})...")
 
         try:
-            # NEW: Validate item structure before processing
+            # Validate item structure before processing
             if content_type == 'message':
                 if 'text' not in item:
                     raise KeyError("Message item is missing the 'text' key.")
@@ -133,6 +131,9 @@ async def process_content():
                         )
                     else:
                         raise
+            
+            else: # Handle unknown types
+                raise ValueError(f"Unknown item type: '{content_type}'")
 
             await asyncio.sleep(4)
 

@@ -1,0 +1,80 @@
+[
+    {
+        "type": "message",
+        "text": "--- ☢️ EXTREME STRESS TEST INITIATED ☢️ ---"
+    },
+    {
+        "type": "poll",
+        "question": "1. Valid Poll (Baseline)",
+        "options": ["Works", "Doesn't Work"],
+        "correct_option": 0,
+        "explanation": "This should always work."
+    },
+    {
+        "type": "poll",
+        "question": "2. Question with every single special MarkdownV2 character: _*[]()~`>#+-=|{}.!",
+        "options": ["Escaped Properly", "Failed"],
+        "correct_option": 0,
+        "explanation": "Tests the escape_markdown_v2() function thoroughly."
+    },
+    {
+        "type": "poll",
+        "question": "3. Empty Question String",
+        "question": "",
+        "options": ["A", "B"],
+        "correct_option": 0
+    },
+    {
+        "type": "poll",
+        "question": "4. Poll with an empty options list.",
+        "options": [],
+        "correct_option": 0
+    },
+    {
+        "type": "poll",
+        "question": "5. Poll with duplicate options.",
+        "options": ["Same", "Same", "Different"],
+        "correct_option": 0
+    },
+    {
+        "type": "poll",
+        "question": "6. correct_option is a string instead of an integer.",
+        "options": ["A", "B"],
+        "correct_option": "0"
+    },
+    {
+        "type": "message",
+        "text": "7. <b>Bold, <i>Italic, <u>Underline, <s>Strikethrough</s></u></i></b>, <a href=\"https://google.com\">Link</a>, <code>inline code</code>, <pre>pre-formatted block</pre>."
+    },
+    {
+        "type": "poll",
+        "question": "8. Extremely long poll question designed to be sent as a text message. This text will go on and on, far exceeding the 300-character limit for a poll question itself, forcing the two-step sending process. It needs to be significantly long to ensure that the bot's logic correctly identifies it's not a poll-explanation length error but a question-length issue that the two-step process is designed to solve. We will add more text just to be safe. And more. And more. And even more text to finalize the test.",
+        "options": ["Sent as Text", "Failed"],
+        "correct_option": 0
+    },
+    {
+        "type": "poll",
+        "question": "9. Very long explanation to test the spoiler fallback.",
+        "options": ["Spoiler Worked", "Spoiler Failed"],
+        "correct_option": 0,
+        "explanation": "This is the test for the super long explanation fallback. The goal is to exceed the 200-character limit for poll explanations by a wide margin. This text must be long enough to trigger the 'message is too long' error from Telegram when sent within the explanation field of a poll. When this error is caught, the bot's logic should resend the poll without any explanation, and then immediately send this full text as a separate follow-up message formatted as a spoiler. This confirms the most advanced error-handling feature is working as intended."
+    },
+    {
+        "type": "nonexistent_type",
+        "data": "10. This item has a completely unknown type."
+    },
+    {
+        "type": "poll",
+        "question": "11. Poll with only one option.",
+        "options": ["Only one"],
+        "correct_option": 0
+    },
+    {
+        "type": "message",
+        "text": null
+    },
+    {
+        "type": "message",
+        "text": "13. Final message. Test complete."
+    }
+]

@@ -52,6 +52,13 @@
         "text": "8 | This item has a custom 'type' that the script doesn't know how to handle."
     },
     {
+        "type": "poll",
+        "question": "7 | This poll has a very long explanation that should be sent as a follow-up message.",
+        "options": ["Option A", "Option B"],
+        "correct_option": null
+        "explanation": "This explanation is specifically crafted to be longer than the 200-character limit imposed by Telegram for poll explanations. It will test the bot's fallback mechanism, where it should fail to send the poll with the explanation, then successfully send the poll without it, and immediately follow up with a separate text message containing this full explanation. This tests the most complex part of the error-handling logic."
+    },
+    {
         "type": "message",
         "tezt": "9 | This message object has a typo in the 'text' key ('tezt'), which should cause a KeyError."
     }

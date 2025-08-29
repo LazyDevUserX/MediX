@@ -4,7 +4,7 @@
         "question": "3 | Valid regular poll (no correct option) ✅",
         "options": ["Yes", "No", "Maybe"],
         "correct_option": null
-        "explanation": "This explanation is deliberately written to be far longer than the 200-character limit imposed by Telegram. The bot should catch the BadRequest error, resend the poll without the explanation, and then send this explanation separately as a follow-up message to the channel, thereby proving that the fallback logic works correctly."
+        "explanation": "This explanation is deliberately written to be far longer than the 200-character limit imposed by Telegram. The bot should catch the BadRequest error, resend the poll without the explanation, and then send this explanation separately as a follow-up message to the channel, thereby proving that the fallback logic works correctly.",
     },
     {
         "type": "poll",

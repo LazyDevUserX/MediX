@@ -41,7 +41,11 @@ def load_items(file_path):
 async def send_error_to_telegram(bot, error_message):
     """Sends a formatted error message to the Telegram channel."""
     try:
-        await bot.send_message(chat_id=CHAT_ID, text=f"🤖 BOT ERROR 🤖\n\n<pre>{error_message}</pre>", parse_mode='HTML')
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"🤖 BOT ERROR 🤖\n\n<pre>{error_message}</pre>",
+            parse_mode='HTML'
+        )
     except Exception as e:
         print(f"❌ CRITICAL: Failed to send error message to Telegram: {e}")
 
@@ -71,43 +75,60 @@ async def process_content():
         try:
             if content_type == 'message':
                 await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode='HTML')
-            
+
             elif content_type == 'poll':
                 question_text = f"[MediX]\n{item['question']}"
                 explanation_text = item.get('explanation')
+                correct_option = item.get('correct_option')
 
                 try:
-                    await bot.send_poll(
-                        chat_id=CHAT_ID,
-                        question=question_text,
-                        options=item["options"],
-                        is_anonymous=True,
-                        type="quiz",
-                        correct_option_id=item["correct_option"],
-                        explanation=explanation_text
-                    )
-                except BadRequest as e:
-                    if "message is too long" in str(e).lower() and explanation_text:
-                        print("⚠️ Warning: Explanation is too long. Sending it as a separate message.")
-                        # Send the poll again, but without the explanation
+                    if correct_option is None:
+                        # ✅ Regular poll (no correct answer)
+                        await bot.send_poll(
+                            chat_id=CHAT_ID,
+                            question=question_text,
+                            options=item["options"],
+                            is_anonymous=True,
+                            type="regular"
+                        )
+                        # Also notify in channel that this poll has no correct answer
+                        await send_error_to_telegram(
+                            bot,
+                            f"Poll sent as REGULAR (no solution provided).\n\nQuestion: {item['question']}"
+                        )
+                    else:
+                        # ✅ Quiz poll (with correct answer)
                         await bot.send_poll(
                             chat_id=CHAT_ID,
                             question=question_text,
                             options=item["options"],
                             is_anonymous=True,
                             type="quiz",
-                            correct_option_id=item["correct_option"],
+                            correct_option_id=correct_option,
+                            explanation=explanation_text
+                        )
+
+                except BadRequest as e:
+                    if "message is too long" in str(e).lower() and explanation_text and correct_option is not None:
+                        print("⚠️ Warning: Explanation is too long. Sending it as a separate message.")
+                        # Send quiz without explanation
+                        await bot.send_poll(
+                            chat_id=CHAT_ID,
+                            question=question_text,
+                            options=item["options"],
+                            is_anonymous=True,
+                            type="quiz",
+                            correct_option_id=correct_option,
                             explanation=None
                         )
-                        # ** NEW LOGIC **
-                        # Now, send the full explanation in a follow-up text message
+                        # Send explanation as a follow-up message
                         await bot.send_message(
                             chat_id=CHAT_ID,
-                            text=f" *Explanation:*\n{explanation_text}",
+                            text=f"*Explanation:*\n{explanation_text}",
                             parse_mode='Markdown'
                         )
                     else:
-                        raise # Re-raise any other errors
+                        raise
 
             await asyncio.sleep(4)
 

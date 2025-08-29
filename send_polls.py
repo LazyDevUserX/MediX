@@ -74,24 +74,29 @@ async def process_content():
 
         try:
             if content_type == 'message':
-                await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode='HTML')
+                text = item.get('text')
+                if not text:
+                    raise KeyError("Missing 'text' in message item")
+                await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode='HTML')
 
             elif content_type == 'poll':
                 question_text = f"[MediX]\n{item['question']}"
-                explanation_text = item.get('explanation')
-                correct_option = item.get('correct_option')
+                options = item.get("options")
+                correct_option = item.get("correct_option")
+                explanation_text = item.get("explanation")
+
+                if not options:
+                    raise KeyError("'options' is missing in poll item")
 
                 try:
                     if correct_option is None:
-                        # ✅ Regular poll (no correct answer)
+                        # ✅ Regular poll (no solution)
                         await bot.send_poll(
                             chat_id=CHAT_ID,
                             question=question_text,
-                            options=item["options"],
-                            is_anonymous=True,
-                            type="regular"
+                            options=options,
+                            is_anonymous=True
                         )
-                        # Also notify in channel that this poll has no correct answer
                         await send_error_to_telegram(
                             bot,
                             f"Poll sent as REGULAR (no solution provided).\n\nQuestion: {item['question']}"
@@ -101,7 +106,7 @@ async def process_content():
                         await bot.send_poll(
                             chat_id=CHAT_ID,
                             question=question_text,
-                            options=item["options"],
+                            options=options,
                             is_anonymous=True,
                             type="quiz",
                             correct_option_id=correct_option,
@@ -115,13 +120,13 @@ async def process_content():
                         await bot.send_poll(
                             chat_id=CHAT_ID,
                             question=question_text,
-                            options=item["options"],
+                            options=options,
                             is_anonymous=True,
                             type="quiz",
                             correct_option_id=correct_option,
                             explanation=None
                         )
-                        # Send explanation as a follow-up message
+                        # Send explanation separately
                         await bot.send_message(
                             chat_id=CHAT_ID,
                             text=f"*Explanation:*\n{explanation_text}",
@@ -129,6 +134,9 @@ async def process_content():
                         )
                     else:
                         raise
+
+            else:
+                raise ValueError(f"Unsupported item type: {content_type}")
 
             await asyncio.sleep(4)
 

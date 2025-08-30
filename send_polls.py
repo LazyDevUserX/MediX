@@ -5,6 +5,7 @@ import json
 import glob
 from telegram import Bot
 from telegram.error import BadRequest
+from telegram.helpers import escape_markdown # NEW: Import the escape function
 
 # Allow nested asyncio
 nest_asyncio.apply()
@@ -93,7 +94,6 @@ async def process_content():
                     except BadRequest as e:
                         if "message is too long" in str(e).lower() and explanation_text:
                             print("    ⚠️ Warning: Explanation is too long. Sending as a separate message.")
-                            # Send the poll again, but without the explanation
                             await bot.send_poll(
                                 chat_id=CHAT_ID,
                                 question=question_text,
@@ -103,21 +103,21 @@ async def process_content():
                                 correct_option_id=correct_option_id,
                                 explanation=None
                             )
-                            # Now, send the full explanation in a follow-up text message
+                            # MODIFIED: Escape the explanation text to prevent parsing errors
+                            escaped_explanation = escape_markdown(explanation_text, version=2)
+                            full_text = f"_*Explanation:*_\n{escaped_explanation}"
+                            
                             await bot.send_message(
                                 chat_id=CHAT_ID,
-                                text=f"*Explanation:*\n{explanation_text}",
-                                parse_mode='Markdown'
+                                text=full_text,
+                                parse_mode='MarkdownV2' # MODIFIED: Use MarkdownV2 for better escaping
                             )
                         else:
-                            raise # Re-raise other errors
+                            raise 
                 
-                # =========================================================
-                #  NEW LOGIC: Handle REGULAR polls (correct_option is null)
-                # =========================================================
+                # CASE 2: It's a REGULAR poll (correct_option is null)
                 else:
                     print("    Type: Regular Poll")
-                    # Step 1: Send the poll. Regular polls do not support the 'explanation' parameter.
                     await bot.send_poll(
                         chat_id=CHAT_ID,
                         question=question_text,
@@ -126,17 +126,17 @@ async def process_content():
                         type="regular" 
                     )
 
-                    # Step 2: If an explanation exists, ALWAYS send it as a separate follow-up message.
                     if explanation_text:
-                        # Add the small, eye-catching header
-                        explanation_header = "No Correct Options*" 
-                        full_explanation = f"{explanation_header}\n\n{explanation_text}"
+                        explanation_header = "📝 *Explanation*" 
+                        # MODIFIED: Escape the explanation text to prevent parsing errors
+                        escaped_explanation = escape_markdown(explanation_text, version=2)
+                        full_explanation = f"{explanation_header}\n\n{escaped_explanation}"
                         
                         print("    Sending separate explanation message.")
                         await bot.send_message(
                             chat_id=CHAT_ID,
                             text=full_explanation,
-                            parse_mode='Markdown'
+                            parse_mode='MarkdownV2' # MODIFIED: Use MarkdownV2 for better escaping
                         )
 
             await asyncio.sleep(4)

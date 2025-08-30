@@ -77,10 +77,6 @@ async def process_content():
                 explanation_text = item.get('explanation')
                 correct_option_id = item.get('correct_option')
 
-                # =========================================================
-                #  MODIFIED LOGIC: Differentiate between Quiz and Regular Poll
-                # =========================================================
-
                 # CASE 1: It's a QUIZ poll (a correct answer is provided)
                 if correct_option_id is not None:
                     print("    Type: Quiz Poll")
@@ -114,40 +110,34 @@ async def process_content():
                                 parse_mode='Markdown'
                             )
                         else:
-                            raise # Re-raise any other errors
+                            raise # Re-raise other errors
                 
-                # CASE 2: It's a REGULAR poll (correct_option is null)
+                # =========================================================
+                #  NEW LOGIC: Handle REGULAR polls (correct_option is null)
+                # =========================================================
                 else:
                     print("    Type: Regular Poll")
-                    try:
-                        await bot.send_poll(
+                    # Step 1: Send the poll. Regular polls do not support the 'explanation' parameter.
+                    await bot.send_poll(
+                        chat_id=CHAT_ID,
+                        question=question_text,
+                        options=item["options"],
+                        is_anonymous=True,
+                        type="regular" 
+                    )
+
+                    # Step 2: If an explanation exists, ALWAYS send it as a separate follow-up message.
+                    if explanation_text:
+                        # Add the small, eye-catching header
+                        explanation_header = "No Correct Options*" 
+                        full_explanation = f"{explanation_header}\n\n{explanation_text}"
+                        
+                        print("    Sending separate explanation message.")
+                        await bot.send_message(
                             chat_id=CHAT_ID,
-                            question=question_text,
-                            options=item["options"],
-                            is_anonymous=True,
-                            type="regular", # This is a regular poll, not a quiz
-                            explanation=explanation_text
+                            text=full_explanation,
+                            parse_mode='Markdown'
                         )
-                    except BadRequest as e:
-                        if "message is too long" in str(e).lower() and explanation_text:
-                            print("    ⚠️ Warning: Explanation is too long. Sending as a separate message.")
-                            # Send the poll again, but without the explanation
-                            await bot.send_poll(
-                                chat_id=CHAT_ID,
-                                question=question_text,
-                                options=item["options"],
-                                is_anonymous=True,
-                                type="regular",
-                                explanation=None
-                            )
-                            # Now, send the full explanation in a follow-up text message
-                            await bot.send_message(
-                                chat_id=CHAT_ID,
-                                text=f"*Explanation:*\n{explanation_text}",
-                                parse_mode='Markdown'
-                            )
-                        else:
-                            raise # Re-raise any other errors
 
             await asyncio.sleep(4)
 

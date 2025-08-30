@@ -1,116 +1,163 @@
-import json
 import asyncio
-from aiogram import Bot
+import nest_asyncio
+import os
+import json
+import glob
+from telegram import Bot
+from telegram.error import BadRequest
 
-API_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+# Allow nested asyncio
+nest_asyncio.apply()
 
-bot = Bot(token=API_TOKEN)
+# ====== CONFIGURATION ======
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-async def send_items(filename: str):
+# ====== FUNCTIONS ======
+
+def find_json_file():
+    """Finds the first .json file in the repository's root directory."""
+    json_files = glob.glob('*.json')
+    if json_files:
+        print(f"✅ Found JSON file: {json_files[0]}")
+        return json_files[0]
+    else:
+        print("❌ No .json file found in the repository.")
+        return None
+
+def load_items(file_path):
+    """Loads items (polls or messages) from a specified JSON file."""
     try:
-        with open(filename, "r", encoding="utf-8") as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             items = json.load(f)
-        if not items:
-            raise ValueError("JSON file is empty.")
+        print(f"✅ Successfully loaded {len(items)} items from {file_path}")
+        return items
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        print(f"❌ Error: The file {file_path} is not a valid JSON file.")
+        return []
+
+async def send_error_to_telegram(bot, error_message):
+    """Sends a formatted error message to the Telegram channel."""
+    try:
+        await bot.send_message(chat_id=CHAT_ID, text=f"🤖 BOT ERROR 🤖\n\n<pre>{error_message}</pre>", parse_mode='HTML')
     except Exception as e:
-        print(f"🤖 BOT ERROR 🤖\n\nFile '{filename}' is empty or invalid.\nError: {e}")
+        print(f"❌ CRITICAL: Failed to send error message to Telegram: {e}")
+
+async def process_content():
+    """Main function to process and send all content from the JSON file."""
+    if not BOT_TOKEN or not CHAT_ID:
+        print("❌ Error: BOT_TOKEN or CHAT_ID is not set. Aborting.")
         return
 
-    for idx, item in enumerate(items, start=1):
+    bot = Bot(token=BOT_TOKEN)
+    json_file = find_json_file()
+
+    if not json_file:
+        await send_error_to_telegram(bot, "Could not find any .json file to process.")
+        return
+
+    item_list = load_items(json_file)
+    if not item_list:
+        await send_error_to_telegram(bot, f"File '{json_file}' is empty or invalid.")
+        return
+
+    print("\nStarting to send content...")
+    for i, item in enumerate(item_list, start=1):
+        content_type = item.get('type', 'poll')
+        print(f"--> Processing item {i} of {len(item_list)} (type: {content_type})...")
+
         try:
-            if item["type"] == "message":
-                # Normal text message
-                await bot.send_message(chat_id=CHAT_ID, text=item["text"])
+            if content_type == 'message':
+                await bot.send_message(chat_id=CHAT_ID, text=item['text'], parse_mode='HTML')
+            
+            elif content_type == 'poll':
+                question_text = f"[MediX]\n{item['question']}"
+                explanation_text = item.get('explanation')
+                correct_option_id = item.get('correct_option')
 
-            elif item["type"] == "poll":
-                options = item.get("options")
-                question = item.get("question", "⚠️ Missing question")
-                correct_option = item.get("correct_option")
-                explanation = item.get("explanation")
+                # =========================================================
+                #  MODIFIED LOGIC: Differentiate between Quiz and Regular Poll
+                # =========================================================
 
-                if not options:
-                    raise KeyError("options")
-
-                # Handle regular poll (null solution)
-                if correct_option is None:
-                    await bot.send_poll(
-                        chat_id=CHAT_ID,
-                        question=question,
-                        options=options,
-                        type="regular"
-                    )
-                    # Bot warning
-                    await bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=(
-                            "🤖 BOT ERROR 🤖\n\n"
-                            "Poll sent as REGULAR (no solution provided).\n\n"
-                            f"Question: {question}"
-                        )
-                    )
-                    # Always send explanation if exists
-                    if explanation:
-                        await bot.send_message(
-                            chat_id=CHAT_ID,
-                            text=f"📌 Explanation:\n{explanation}"
-                        )
-
-                else:
-                    # Try to send quiz poll
+                # CASE 1: It's a QUIZ poll (a correct answer is provided)
+                if correct_option_id is not None:
+                    print("    Type: Quiz Poll")
                     try:
                         await bot.send_poll(
                             chat_id=CHAT_ID,
-                            question=question,
-                            options=options,
+                            question=question_text,
+                            options=item["options"],
+                            is_anonymous=True,
                             type="quiz",
-                            correct_option_id=correct_option,
-                            explanation=explanation if explanation else None,
+                            correct_option_id=correct_option_id,
+                            explanation=explanation_text
                         )
-                    except Exception as e:
-                        if "explanation" in str(e).lower() and explanation:
-                            # Retry without explanation
+                    except BadRequest as e:
+                        if "message is too long" in str(e).lower() and explanation_text:
+                            print("    ⚠️ Warning: Explanation is too long. Sending as a separate message.")
+                            # Send the poll again, but without the explanation
                             await bot.send_poll(
                                 chat_id=CHAT_ID,
-                                question=question,
-                                options=options,
+                                question=question_text,
+                                options=item["options"],
+                                is_anonymous=True,
                                 type="quiz",
-                                correct_option_id=correct_option
+                                correct_option_id=correct_option_id,
+                                explanation=None
                             )
-                            # Send explanation separately
+                            # Now, send the full explanation in a follow-up text message
                             await bot.send_message(
                                 chat_id=CHAT_ID,
-                                text=f"📌 Explanation:\n{explanation}"
+                                text=f"*Explanation:*\n{explanation_text}",
+                                parse_mode='Markdown'
                             )
                         else:
-                            raise e
+                            raise # Re-raise any other errors
+                
+                # CASE 2: It's a REGULAR poll (correct_option is null)
+                else:
+                    print("    Type: Regular Poll")
+                    try:
+                        await bot.send_poll(
+                            chat_id=CHAT_ID,
+                            question=question_text,
+                            options=item["options"],
+                            is_anonymous=True,
+                            type="regular", # This is a regular poll, not a quiz
+                            explanation=explanation_text
+                        )
+                    except BadRequest as e:
+                        if "message is too long" in str(e).lower() and explanation_text:
+                            print("    ⚠️ Warning: Explanation is too long. Sending as a separate message.")
+                            # Send the poll again, but without the explanation
+                            await bot.send_poll(
+                                chat_id=CHAT_ID,
+                                question=question_text,
+                                options=item["options"],
+                                is_anonymous=True,
+                                type="regular",
+                                explanation=None
+                            )
+                            # Now, send the full explanation in a follow-up text message
+                            await bot.send_message(
+                                chat_id=CHAT_ID,
+                                text=f"*Explanation:*\n{explanation_text}",
+                                parse_mode='Markdown'
+                            )
+                        else:
+                            raise # Re-raise any other errors
 
-            else:
-                # Unknown type
-                await bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=(
-                        "🤖 BOT ERROR 🤖\n\n"
-                        f"Failed to send item #{idx}.\n"
-                        f"Type: {item.get('type')}\n"
-                        f"Error: Unsupported item type."
-                    )
-                )
+            await asyncio.sleep(4)
 
         except Exception as e:
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text=(
-                    "🤖 BOT ERROR 🤖\n\n"
-                    f"Failed to send item #{idx}.\n"
-                    f"Type: {item.get('type')}\n"
-                    f"Error: {e}"
-                )
-            )
+            error_details = f"Failed to send item #{i}.\nType: {content_type}\nError: {e}"
+            print(f"❌ {error_details}")
+            await send_error_to_telegram(bot, error_details)
 
-        # Small delay to avoid flood limits
-        await asyncio.sleep(1.5)
+    print("\n✅ Finished sending all content.")
 
-
+# ====== MAIN EXECUTION BLOCK ======
 if __name__ == "__main__":
-    asyncio.run(send_items("ExtreamStress.json"))
+    asyncio.run(process_content())

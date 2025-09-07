@@ -34,7 +34,8 @@ async def main():
         return
 
     # --- 3. TELEGRAM CLIENT INITIALIZATION ---
-    client = TelegramClient(StringSession(session_string), api_id, api_hash)
+    # THIS IS THE CRITICAL FIX FOR THE TIMEOUT ERROR
+    client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
 
     async with client:
         print("Telegram client connected.")
@@ -49,7 +50,6 @@ async def main():
             try:
                 message = await client.get_messages(source_entity, ids=msg_id)
                 if message:
-                    # Send a copy of the message (text, poll, media) without the forward header
                     await client.send_message(destination_entity, message=message)
                     print(f"Successfully sent message ID: {message.id}")
                 else:
@@ -57,7 +57,6 @@ async def main():
                     continue
 
             except FloodWaitError as e:
-                # This is the main safety feature.
                 print(f"FloodWaitError: Being rate-limited. Waiting for {e.seconds + 5} seconds.")
                 await asyncio.sleep(e.seconds + 5)
                 print(f"Skipping message ID {msg_id} due to flood wait. You can retry it later.")
@@ -66,7 +65,6 @@ async def main():
                 print(f"An unexpected error occurred for message ID {msg_id}: {e}")
 
             finally:
-                # This is a key safety feature to mimic human behavior.
                 delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
                 print(f"Waiting for {delay:.2f} seconds...")
                 await asyncio.sleep(delay)
@@ -75,4 +73,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-                        
+

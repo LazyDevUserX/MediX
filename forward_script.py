@@ -34,7 +34,6 @@ async def main():
         return
 
     # --- 3. TELEGRAM CLIENT INITIALIZATION ---
-    # THIS IS THE CRITICAL FIX FOR THE TIMEOUT ERROR
     client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
 
     async with client:
@@ -50,7 +49,14 @@ async def main():
             try:
                 message = await client.get_messages(source_entity, ids=msg_id)
                 if message:
-                    await client.send_message(destination_entity, message=message)
+                    # --- THE FIX FOR SILENTLY FAILING POLLS ---
+                    # Instead of the simple `message=message` shortcut, we now explicitly
+                    # send the text and media components separately. This is far more reliable.
+                    await client.send_message(
+                        destination_entity,
+                        message=message.text,  # This handles the text part or caption
+                        file=message.media     # This handles any media: photo, video, AND polls
+                    )
                     print(f"Successfully sent message ID: {message.id}")
                 else:
                     print(f"Message ID {msg_id} does not exist. Skipping.")
@@ -73,4 +79,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
+            

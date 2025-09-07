@@ -10,8 +10,20 @@ from telethon.errors import FloodWaitError
 MIN_DELAY_SECONDS = 2
 MAX_DELAY_SECONDS = 5
 
+# --- NEW: HELPER FUNCTION TO PARSE IDs FROM NUMBERS OR LINKS ---
+def parse_id(value):
+    """Extracts a message ID from a string, which can be a number or a TG link."""
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+    elif '/' in value:
+        # For links like https://t.me/c/2478655415/96665, take the last part
+        return int(value.split('/')[-1])
+    else:
+        raise ValueError(f"Invalid format for message ID: {value}")
+
 async def main():
-    print("--- SCRIPT INITIALIZING (POLLS-ONLY MODE) ---")
+    print("--- SCRIPT INITIALIZING (POLLS-ONLY, ADVANCED PARSING MODE) ---")
 
     # --- 1. CONFIGURATION ---
     api_id = os.getenv('API_ID')
@@ -24,12 +36,37 @@ async def main():
         print("🔴 FATAL ERROR: One or more GitHub Secrets are missing.")
         return
 
-    # --- 2. READ MESSAGE RANGE ---
+    # --- 2. REWRITTEN: ADVANCED RANGE PARSING LOGIC ---
+    all_message_ids = []
     try:
         with open('range.txt', 'r') as f:
-            line = next((l for l in f if l.strip()), None)
-            start_id, end_id = map(int, line.strip().split('-'))
-        print(f"✅ Message range to process: {start_id} to {end_id}")
+            lines = f.readlines()
+        
+        start_id = None
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            parts = line.split(':', 1)
+            if len(parts) != 2:
+                continue
+            
+            key = parts[0].strip().lower()
+            value = parts[1].strip()
+
+            if key == 'start':
+                start_id = parse_id(value)
+            elif key == 'end' and start_id is not None:
+                end_id = parse_id(value)
+                all_message_ids.extend(range(start_id, end_id + 1))
+                start_id = None # Reset for the next pair
+        
+        if not all_message_ids:
+             raise ValueError("range.txt contains no valid Start/End pairs.")
+
+        print(f"✅ Successfully parsed range.txt. Total messages to process: {len(all_message_ids)}")
+
     except Exception as e:
         print(f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}")
         return
@@ -53,43 +90,32 @@ async def main():
             return
 
         # --- 4. FETCH AND SEND MESSAGES ---
-        message_ids = list(range(start_id, end_id + 1))
-        print(f"\n--- Starting to process {len(message_ids)} message IDs ---")
-
-        for msg_id in message_ids:
+        print(f"\n--- Starting to process {len(all_message_ids)} message IDs ---")
+        for msg_id in all_message_ids:
+            # (The rest of the script remains the same)
             print(f"\nProcessing Message ID: {msg_id}...")
             try:
                 message = await client.get_messages(source_entity, ids=msg_id)
-
-                if message:
-                    # --- POLLS-ONLY LOGIC ---
-                    # The script now only acts if the message is a poll.
-                    if message.poll:
-                        print("  -> DETECTED: Message is a poll. Forwarding...")
-                        await message.forward_to(destination_entity)
-                        print(f"  -> ✅ FORWARDED: Poll from message ID {message.id}.")
-                    else:
-                        # If it's not a poll, it prints this message and does nothing.
-                        print("  -> INFO: Message is not a poll. Ignoring.")
+                if message and message.poll:
+                    print("  -> DETECTED: Message is a poll. Forwarding...")
+                    await message.forward_to(destination_entity)
+                    print(f"  -> ✅ FORWARDED: Poll from message ID {message.id}.")
+                elif message:
+                    print("  -> INFO: Message is not a poll. Ignoring.")
                 else:
                     print(f"  -> INFO: No message object returned for ID {msg_id}. Skipping.")
-                    continue
-
             except FloodWaitError as e:
                 print(f"  -> 🟡 WARNING: FloodWaitError. Pausing for {e.seconds + 5} seconds.")
                 await asyncio.sleep(e.seconds + 5)
-
             except Exception:
                 print(f"  -> 🔴 ERROR: An unexpected error occurred for message ID {msg_id}.")
                 print("--- FULL ERROR TRACEBACK ---")
                 traceback.print_exc()
                 print("----------------------------")
-
             finally:
                 delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
                 print(f"  -> Pausing for {delay:.2f} seconds...")
                 await asyncio.sleep(delay)
-
         print("\n--- ✅ Process Complete ---")
 
 if __name__ == "__main__":

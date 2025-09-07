@@ -11,7 +11,7 @@ MIN_DELAY_SECONDS = 2
 MAX_DELAY_SECONDS = 5
 
 async def main():
-    print("--- SCRIPT INITIALIZING (DEBUG MODE) ---")
+    print("--- SCRIPT INITIALIZING (POLLS-ONLY MODE) ---")
 
     # --- 1. CONFIGURATION ---
     api_id = os.getenv('API_ID')
@@ -23,7 +23,6 @@ async def main():
     if not all([api_id, api_hash, session_string, source_channel_id, destination_channel_id]):
         print("🔴 FATAL ERROR: One or more GitHub Secrets are missing.")
         return
-    print("✅ Configuration loaded from secrets.")
 
     # --- 2. READ MESSAGE RANGE ---
     try:
@@ -39,7 +38,7 @@ async def main():
     client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
 
     async with client:
-        print("✅ Telegram client created. Attempting to connect...")
+        print("✅ Telegram client connected.")
         me = await client.get_me()
         print(f"✅ Successfully connected as user: {me.first_name} (ID: {me.id})")
         
@@ -49,7 +48,7 @@ async def main():
             print(f"✅ Source entity found: '{source_entity.title}'")
             print(f"✅ Destination entity found: '{destination_entity.title}'")
         except Exception as e:
-            print(f"🔴 FATAL ERROR: Could not find one of the channels. Please check your IDs/links.")
+            print(f"🔴 FATAL ERROR: Could not find one of the channels.")
             print(f"   Details: {e}")
             return
 
@@ -60,26 +59,20 @@ async def main():
         for msg_id in message_ids:
             print(f"\nProcessing Message ID: {msg_id}...")
             try:
-                # DEBUG: Fetch the message
                 message = await client.get_messages(source_entity, ids=msg_id)
 
-                # DEBUG: Check if the message object exists
                 if message:
-                    print(f"  -> SUCCESS: Found message object for ID {msg_id}.")
-                    print(f"  -> DEBUG: Message Type: {type(message)}")
-                    print(f"  -> DEBUG: Has Text: {bool(message.text)}")
-                    print(f"  -> DEBUG: Has Media: {bool(message.media)}")
-                    
-                    # Attempt to send the message
-                    await client.send_message(
-                        destination_entity,
-                        message=message.text,
-                        file=message.media
-                    )
-                    print(f"  -> ✅ SENT: Message ID {message.id} sent successfully.")
+                    # --- POLLS-ONLY LOGIC ---
+                    # The script now only acts if the message is a poll.
+                    if message.poll:
+                        print("  -> DETECTED: Message is a poll. Forwarding...")
+                        await message.forward_to(destination_entity)
+                        print(f"  -> ✅ FORWARDED: Poll from message ID {message.id}.")
+                    else:
+                        # If it's not a poll, it prints this message and does nothing.
+                        print("  -> INFO: Message is not a poll. Ignoring.")
                 else:
-                    # This is the most likely reason for the previous silent failure.
-                    print(f"  -> INFO: No message object returned for ID {msg_id}. It may be deleted or inaccessible.")
+                    print(f"  -> INFO: No message object returned for ID {msg_id}. Skipping.")
                     continue
 
             except FloodWaitError as e:
@@ -87,7 +80,6 @@ async def main():
                 await asyncio.sleep(e.seconds + 5)
 
             except Exception:
-                # This is the better error handling. It will print the full error trace.
                 print(f"  -> 🔴 ERROR: An unexpected error occurred for message ID {msg_id}.")
                 print("--- FULL ERROR TRACEBACK ---")
                 traceback.print_exc()

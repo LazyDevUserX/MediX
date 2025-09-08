@@ -1,16 +1,16 @@
 Message: তড়িৎ চৌম্বক আবেশ ও পরবর্তী প্রবাহ - Master QB
-Start:https://t.me/c/2478655415/32767
-End:https://t.me/c/2478655415/43506
+Start: https://t.me/c/2478655415/32767
+End: https://t.me/c/2478655415/43506
 
 Message: জ্যামিতিক আলোক বিজ্ঞান - Master QB
-Start:https://t.me/c/2478655415/16124
-End:https://t.me/c/2478655415/16432
+Start: https://t.me/c/2478655415/16124
+End: https://t.me/c/2478655415/16432
 
 Message: ভৌত আলোকবিজ্ঞান - Master QB
-https://t.me/c/2478655415/18035
-https://t.me/c/2478655415/18313
+Start: https://t.me/c/2478655415/18035
+End: https://t.me/c/2478655415/18313
 
 Message: আধুনিক পদার্থবিজ্ঞান - Master QB
-Start:https://t.me/c/2478655415/33005
-End:https://t.me/c/2478655415/33258
+Start: https://t.me/c/2478655415/33005
+End: https://t.me/c/2478655415/33258
 

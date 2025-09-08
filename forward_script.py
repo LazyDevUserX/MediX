@@ -7,8 +7,8 @@ from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 
 # --- SAFETY CONFIGURATION ---
-MIN_DELAY_SECONDS = 2
-MAX_DELAY_SECONDS = 5
+MIN_DELAY_SECONDS = 0.5
+MAX_DELAY_SECONDS = 1
 
 # --- NEW: HELPER FUNCTION TO PARSE IDs FROM NUMBERS OR LINKS ---
 def parse_id(value):

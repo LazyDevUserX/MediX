@@ -10,8 +10,9 @@ from telethon.errors import FloodWaitError
 MIN_DELAY_SECONDS = 1
 MAX_DELAY_SECONDS = 2
 
-# --- HELPER FUNCTION TO PARSE IDs ---
+# --- HELPER FUNCTION TO PARSE IDs FROM NUMBERS OR LINKS ---
 def parse_id(value):
+    """Extracts a message ID from a string, which can be a number or a TG link."""
     value = value.strip()
     if value.isdigit():
         return int(value)
@@ -21,7 +22,7 @@ def parse_id(value):
         raise ValueError(f"Invalid format for message ID: {value}")
 
 async def main():
-    print("--- SCRIPT INITIALIZING (ROBUST TWO-PHASE MODE) ---")
+    print("--- SCRIPT INITIALIZING (STABLE BASE + CUSTOM MESSAGES) ---")
 
     # --- 1. CONFIGURATION ---
     api_id = os.getenv('API_ID')
@@ -34,41 +35,7 @@ async def main():
         print("🔴 FATAL ERROR: One or more GitHub Secrets are missing.")
         return
 
-    # --- 2. PHASE 1: PARSE range.txt INTO A TASK LIST ---
-    tasks = []
-    try:
-        with open('range.txt', 'r') as f:
-            lines = f.readlines()
-        
-        start_id = None
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            parts = line.split(':', 1)
-            if len(parts) != 2:
-                continue
-            key = parts[0].strip().lower()
-            value = parts[1].strip()
-
-            if key == 'message':
-                tasks.append({'type': 'message', 'content': value, 'line': line_num})
-            elif key == 'start':
-                start_id = parse_id(value)
-            elif key == 'end' and start_id is not None:
-                end_id = parse_id(value)
-                tasks.append({'type': 'range', 'start': start_id, 'end': end_id, 'line': line_num})
-                start_id = None
-        
-        if not tasks:
-             raise ValueError("range.txt contains no valid tasks.")
-        print(f"✅ Successfully parsed range.txt. Found {len(tasks)} tasks to execute.")
-
-    except Exception as e:
-        print(f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}")
-        return
-
-    # --- 3. TELEGRAM CLIENT INITIALIZATION ---
+    # --- 2. TELEGRAM CLIENT INITIALIZATION ---
     client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
 
     async with client:
@@ -85,47 +52,80 @@ async def main():
             print(f"🔴 FATAL ERROR: Could not find one of the channels. Details: {e}")
             return
 
-        # --- 4. PHASE 2: EXECUTE THE TASK LIST ---
-        print("\n--- Starting to execute tasks ---")
-        for i, task in enumerate(tasks, 1):
-            try:
-                # --- TASK: SEND A CUSTOM MESSAGE ---
-                if task['type'] == 'message':
-                    print(f"\n[{i}/{len(tasks)}] Executing Task: Send custom message from line {task['line']}...")
-                    await client.send_message(destination_entity, task['content'])
-                    print(f"  -> ✅ SENT: Custom message sent successfully.")
+        # --- 3. PROCESS TASKS FROM FILE, LINE BY LINE ---
+        print("\n--- Starting to process tasks from range.txt ---")
+        try:
+            with open('range.txt', 'r') as f:
+                lines = f.readlines()
+            
+            start_id = None
+            for line_num, line in enumerate(lines, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
 
-                # --- TASK: FORWARD A RANGE OF POLLS ---
-                elif task['type'] == 'range':
-                    print(f"\n[{i}/{len(tasks)}] Executing Task: Process poll range {task['start']}-{task['end']} from line {task['line']}...")
-                    message_ids_for_batch = list(range(task['start'], task['end'] + 1))
+                parts = line.split(':', 1)
+                if len(parts) != 2:
+                    continue
+                
+                key = parts[0].strip().lower()
+                value = parts[1].strip()
+
+                if key == 'start':
+                    start_id = parse_id(value)
+
+                # --- NEW FEATURE: SEND CUSTOM MESSAGE ---
+                elif key == 'message':
+                    print(f"\n--- Sending custom message from line {line_num} ---")
+                    try:
+                        await client.send_message(destination_entity, value)
+                        print(f"  -> ✅ SENT: Custom message sent successfully.")
+                    except Exception as e:
+                        print(f"  -> 🔴 ERROR: Could not send custom message. Reason: {e}")
+                    finally:
+                        delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
+                        print(f"  -> Pausing for {delay:.2f} seconds...")
+                        await asyncio.sleep(delay)
+
+                elif key == 'end' and start_id is not None:
+                    end_id = parse_id(value)
+                    
+                    print(f"\n--- Processing poll batch: {start_id}-{end_id} ---")
+                    message_ids_for_batch = list(range(start_id, end_id + 1))
                     
                     messages_in_batch = await client.get_messages(source_entity, ids=message_ids_for_batch)
                     valid_messages = [m for m in messages_in_batch if m]
+                    
                     print(f"  -> Found {len(valid_messages)} messages in this batch.")
 
                     for message in valid_messages:
-                        print(f"    Processing Message ID: {message.id}...")
-                        if message.poll:
-                            print("      -> DETECTED: Message is a poll. Forwarding...")
-                            await message.forward_to(destination_entity)
-                            print(f"      -> ✅ FORWARDED: Poll from message ID {message.id}.")
-                        else:
-                            print("      -> INFO: Message is not a poll. Ignoring.")
-                        
-                        delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
-                        print(f"      -> Pausing for {delay:.2f} seconds...")
-                        await asyncio.sleep(delay)
+                        print(f"  Processing Message ID: {message.id}...")
+                        try:
+                            if message.poll:
+                                print("    -> DETECTED: Message is a poll. Forwarding...")
+                                await message.forward_to(destination_entity)
+                                print(f"    -> ✅ FORWARDED: Poll from message ID {message.id}.")
+                            else:
+                                print("    -> INFO: Message is not a poll. Ignoring.")
+                        except FloodWaitError as e:
+                            print(f"    -> 🟡 WARNING: FloodWaitError. Pausing for {e.seconds + 5} seconds.")
+                            await asyncio.sleep(e.seconds + 5)
+                        except Exception:
+                            print(f"    -> 🔴 ERROR: An unexpected error occurred for message ID {message.id}.")
+                            traceback.print_exc()
+                        finally:
+                            delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
+                            print(f"    -> Pausing for {delay:.2f} seconds...")
+                            await asyncio.sleep(delay)
+                    
+                    start_id = None # Reset for the next pair
 
-            except FloodWaitError as e:
-                print(f"  -> 🟡 WARNING: FloodWaitError on task {i}. Pausing for {e.seconds + 5} seconds.")
-                await asyncio.sleep(e.seconds + 5)
-            except Exception:
-                print(f"  -> 🔴 ERROR: An unexpected error occurred on task {i}.")
-                traceback.print_exc()
+        except Exception as e:
+            print(f"🔴 FATAL ERROR: An error occurred while processing range.txt. Details: {e}")
+            return
 
-        print("\n--- ✅ All tasks complete ---")
+        print("\n--- ✅ Process Complete ---")
 
 if __name__ == "__main__":
     asyncio.run(main())
-                
+        

@@ -26,7 +26,7 @@ async def main():
 
     # --- 1. CONFIGURATION ---
     api_id = os.getenv('API_ID')
-    api_hash = os.getenv('API_HSH')
+    api_hash = os.getenv('API_HASH')  # <-- THIS LINE IS NOW CORRECTED
     session_string = os.getenv('SESSION_STRING')
     source_channel_id = os.getenv('SOURCE_CHANNEL')
     destination_channel_id = os.getenv('DESTINATION_CHANNEL')
@@ -39,7 +39,7 @@ async def main():
     client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
 
     async with client:
-        print("✅ Telegram client connected.")
+        print("✅ Telegram client created. Attempting to connect...")
         me = await client.get_me()
         print(f"✅ Successfully connected as user: {me.first_name} (ID: {me.id})")
         
@@ -53,7 +53,7 @@ async def main():
             print(f"   Details: {e}")
             return
 
-        # --- 3. REWRITTEN: PROCESS RANGES AND MESSAGES FROM FILE ---
+        # --- 3. PROCESS RANGES AND MESSAGES FROM FILE ---
         print("\n--- Starting to process tasks from range.txt ---")
         try:
             with open('range.txt', 'r') as f:
@@ -74,8 +74,6 @@ async def main():
 
                 if key == 'start':
                     start_id = parse_id(value)
-
-                # --- NEW FEATURE LOGIC ---
                 elif key == 'message':
                     print(f"\n--- Sending custom message from line {line_num} ---")
                     try:
@@ -118,7 +116,7 @@ async def main():
                             print(f"    -> Pausing for {delay:.2f} seconds...")
                             await asyncio.sleep(delay)
                     
-                    start_id = None # Reset for the next pair
+                    start_id = None
 
         except Exception as e:
             print(f"🔴 FATAL ERROR: An error occurred while processing range.txt. Details: {e}")
@@ -128,4 +126,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+            

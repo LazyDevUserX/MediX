@@ -10,7 +10,6 @@ from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 
 # --- Load environment variables ---
-# This warning is NORMAL in GitHub Actions, as variables are loaded directly.
 try:
     from dotenv import load_dotenv
     load_dotenv(override=True)
@@ -19,20 +18,17 @@ except ImportError:
     print("🟡 python-dotenv not found, relying on system environment variables.")
 
 # --- SCRIPT CONFIGURATION ---
-# Telethon User Client Config
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 SESSION_STRING = os.getenv('SESSION_STRING')
 SOURCE_CHANNEL = os.getenv('SOURCE_CHANNEL')
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL')
-
-# Log Channel Config (used by the userbot)
 LOG_CHANNEL_ID = os.getenv('LOG_CHANNEL_ID')
 
-# Safety Delays
+# Safety & Performance
 MIN_DELAY_SECONDS = 1
 MAX_DELAY_SECONDS = 2
-
+BATCH_SIZE = 100 # Process 100 messages at a time
 
 # --- HELPER FUNCTIONS ---
 
@@ -51,7 +47,6 @@ async def send_log(client: TelegramClient, log_channel_id: int, text: str):
     if not client or not log_channel_id:
         return
     try:
-        # The 'parse_mode' needs to be explicitly set to 'html' for Telethon
         await client.send_message(
             entity=log_channel_id,
             message=text,
@@ -73,15 +68,13 @@ async def main():
     required_vars = {
         'API_ID': API_ID, 'API_HASH': API_HASH, 'SESSION_STRING': SESSION_STRING,
         'SOURCE_CHANNEL': SOURCE_CHANNEL, 'DESTINATION_CHANNEL': DESTINATION_CHANNEL,
-        'LOG_CHANNEL_ID': LOG_CHANNEL_ID  # LOG_BOT_TOKEN is no longer required
+        'LOG_CHANNEL_ID': LOG_CHANNEL_ID
     }
     missing_vars = [name for name, var in required_vars.items() if not var]
     if missing_vars:
         print(f"🔴 FATAL ERROR: Missing GitHub Secrets: {', '.join(missing_vars)}")
-        # We can't log this error to Telegram because we don't have the client yet.
         return
 
-    # Convert LOG_CHANNEL_ID to integer for Telethon
     try:
         log_channel_int_id = int(LOG_CHANNEL_ID)
     except ValueError:
@@ -90,6 +83,7 @@ async def main():
 
     # --- 2. PARSE range.txt ---
     tasks = []
+    # (Parsing logic remains the same)
     try:
         with open('range.txt', 'r') as f:
             lines = f.readlines()
@@ -116,9 +110,7 @@ async def main():
         print(f"{console_prefix} Successfully parsed {len(tasks)} tasks from range.txt.")
 
     except Exception as e:
-        error_message = f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}"
-        print(error_message)
-        # We can't log this yet as the client is not connected.
+        print(f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}")
         return
 
     # --- 3. INITIALIZE AND EXECUTE ---
@@ -129,19 +121,13 @@ async def main():
     async with client:
         await send_log(client, log_channel_int_id, "🚀 <b>Poll Forwarder Initialized</b>\nScript is starting up...")
         
-        print(f"{console_prefix} Telegram client connecting...")
         me = await client.get_me()
-        print(f"{console_prefix} Successfully connected as: {me.first_name} (ID: {me.id})")
         await send_log(client, log_channel_int_id, f"👤 <b>Client Connected</b>\nLogged in as: <code>{me.first_name} {me.last_name or ''}</code>")
         
         try:
             source_entity = await client.get_entity(SOURCE_CHANNEL)
             destination_entity = await client.get_entity(DESTINATION_CHANNEL)
-            # Verify we can send to the log channel
             await client.get_entity(log_channel_int_id)
-
-            print(f"{console_prefix} Source: '{source_entity.title}'")
-            print(f"{console_prefix} Destination: '{destination_entity.title}'")
             await send_log(client, log_channel_int_id, (
                 f"🎯 <b>Channels Verified</b>\n"
                 f"<b>Source:</b> <code>{source_entity.title}</code>\n"
@@ -149,15 +135,11 @@ async def main():
                 f"<b>Logs:</b> OK"
             ))
         except Exception as e:
-            error_msg = f"🔴 FATAL ERROR: Could not find one of the channels (source, destination, or log). Details: {e}"
-            print(error_msg)
             await send_log(client, log_channel_int_id, f"💥 <b>Fatal Error</b>\nCould not resolve channels.\n\n<b>Details:</b>\n<code>{e}</code>")
             return
 
         # --- 4. EXECUTE TASKS (Main Loop) ---
         for i, task in enumerate(tasks, 1):
-            # ... The main loop remains identical to the previous version ...
-            # (The code for processing 'message' and 'range' tasks is correct)
             task_header = f"▶️ <b>Executing Task {i}/{len(tasks)}:</b> <code>{task['type'].upper()}</code>"
             await send_log(client, log_channel_int_id, task_header)
             
@@ -167,38 +149,48 @@ async def main():
                     stats['polls_forwarded'] += 1
                     await send_log(client, log_channel_int_id, f"  ✍️ <b>Custom Message Sent:</b> \"{task['content'][:50]}...\"")
 
+                # --- MODIFIED: BATCH PROCESSING LOGIC ---
                 elif task['type'] == 'range':
-                    range_info = f"Processing poll range <code>{task['start']}-{task['end']}</code>..."
+                    start, end = task['start'], task['end']
+                    range_info = f"Processing poll range <code>{start}-{end}</code> in batches of {BATCH_SIZE}."
                     await send_log(client, log_channel_int_id, f"  🔎 {range_info}")
                     
-                    message_ids = list(range(task['start'], task['end'] + 1))
-                    messages = await client.get_messages(source_entity, ids=message_ids)
-                    valid_messages = [m for m in messages if m]
+                    # Loop through the total range in chunks of BATCH_SIZE
+                    for batch_start in range(start, end + 1, BATCH_SIZE):
+                        batch_end = min(batch_start + BATCH_SIZE - 1, end)
+                        batch_ids = list(range(batch_start, batch_end + 1))
+                        
+                        print(f"  Fetching batch: {batch_start}-{batch_end}")
+                        
+                        messages = await client.get_messages(source_entity, ids=batch_ids)
+                        valid_messages = [m for m in messages if m]
 
-                    await send_log(client, log_channel_int_id, f"  📥 Found <code>{len(valid_messages)}</code> existing messages in the range.")
-                    
-                    for message in valid_messages:
-                        delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
-                        if message.poll:
-                            await message.forward_to(destination_entity)
-                            stats['polls_forwarded'] += 1
-                            print(f"  ✅ FORWARDED: Poll from message ID {message.id}.")
-                            await asyncio.sleep(delay)
-                        else:
-                            stats['non_polls_skipped'] += 1
-                            print(f"  🟡 SKIPPED: Message ID {message.id} is not a poll.")
-            
+                        if valid_messages:
+                           await send_log(client, log_channel_int_id, f"  - Processing batch <code>{batch_start}-{batch_end}</code>, found {len(valid_messages)} messages.")
+                        
+                        for message in valid_messages:
+                            delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
+                            if message.poll:
+                                await message.forward_to(destination_entity)
+                                stats['polls_forwarded'] += 1
+                                print(f"    ✅ FORWARDED: Poll from message ID {message.id}.")
+                                await asyncio.sleep(delay)
+                            else:
+                                stats['non_polls_skipped'] += 1
+                                # Skipping is a normal operation, so we don't log it to avoid spam
+                        
+                        # Small pause between batches to be safe
+                        await asyncio.sleep(1)
+
             except FloodWaitError as e:
                 wait_time = e.seconds + 5
                 stats['errors'] += 1
-                warning_msg = f"🟡 <b>FloodWaitError on Task {i}</b>. Pausing for <code>{wait_time}</code> seconds."
-                print(f"{console_prefix} {warning_msg}")
+                warning_msg = f"🟡 <b>FloodWaitError</b>. Pausing for <code>{wait_time}</code> seconds."
                 await send_log(client, log_channel_int_id, warning_msg)
                 await asyncio.sleep(wait_time)
             except Exception as e:
                 stats['errors'] += 1
                 error_summary = f"🔴 <b>Error on Task {i}</b>: <code>{type(e).__name__}</code>"
-                print(f"{console_prefix} {error_summary}. Details in traceback.")
                 traceback.print_exc()
                 await send_log(client, log_channel_int_id, f"{error_summary}\n<b>Details:</b> <code>{str(e)}</code>")
 
@@ -213,7 +205,6 @@ async def main():
             f"  - <b>Errors Encountered:</b> <code>{stats['errors']}</code>\n\n"
             f"⏱️ <b>Total Duration:</b> <code>{duration}</code>"
         )
-        print("\n--- ✅ All tasks complete ---")
         await send_log(client, log_channel_int_id, summary)
 
 if __name__ == "__main__":

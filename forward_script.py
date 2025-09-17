@@ -2,17 +2,46 @@ import os
 import asyncio
 import random
 import traceback
+from datetime import datetime
+
+# --- Telethon for user actions ---
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 
-# --- SAFETY CONFIGURATION ---
+# --- Aiogram for bot logging ---
+from aiogram import Bot
+from aiogram.client.bot import DefaultBotProperties
+
+# --- Load environment variables from .env file ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    print("✅ .env file loaded.")
+except ImportError:
+    print("🟡 python-dotenv not found, relying on system environment variables.")
+
+# --- SCRIPT CONFIGURATION ---
+# Telethon User Client Config
+API_ID = os.getenv('API_ID')
+API_HASH = os.getenv('API_HASH')
+SESSION_STRING = os.getenv('SESSION_STRING')
+SOURCE_CHANNEL = os.getenv('SOURCE_CHANNEL')
+DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL')
+
+# Aiogram Bot Logger Config
+LOG_BOT_TOKEN = os.getenv('LOG_BOT_TOKEN')
+LOG_CHANNEL_ID = os.getenv('LOG_CHANNEL_ID')
+
+# Safety Delays
 MIN_DELAY_SECONDS = 1
 MAX_DELAY_SECONDS = 2
 
-# --- HELPER FUNCTION TO PARSE IDs ---
+# --- HELPER FUNCTIONS ---
+
 def parse_id(value):
-    value = value.strip()
+    """Parses message IDs from various formats (raw number, link)."""
+    value = str(value).strip()
     if value.isdigit():
         return int(value)
     elif '/' in value:
@@ -20,26 +49,48 @@ def parse_id(value):
     else:
         raise ValueError(f"Invalid format for message ID: {value}")
 
+async def send_log(bot: Bot, text: str):
+    """Sends a formatted message to the log channel, ignoring errors."""
+    if not bot or not LOG_CHANNEL_ID:
+        return
+    try:
+        await bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        print(f"🔴 CRITICAL: Failed to send log message. Error: {e}")
+
+# --- MAIN SCRIPT LOGIC ---
+
 async def main():
-    print("--- SCRIPT INITIALIZING (ROBUST TWO-PHASE MODE) ---")
+    """Initializes clients, parses tasks, and executes the forwarding process."""
+    console_prefix = "--- SCRIPT ---"
+    print(f"{console_prefix} Initializing...")
 
-    # --- 1. CONFIGURATION ---
-    api_id = os.getenv('API_ID')
-    api_hash = os.getenv('API_HASH')
-    session_string = os.getenv('SESSION_STRING')
-    source_channel_id = os.getenv('SOURCE_CHANNEL')
-    destination_channel_id = os.getenv('DESTINATION_CHANNEL')
-
-    if not all([api_id, api_hash, session_string, source_channel_id, destination_channel_id]):
-        print("🔴 FATAL ERROR: One or more GitHub Secrets are missing.")
+    # --- 1. VALIDATE CONFIGURATION ---
+    required_vars = {
+        'API_ID': API_ID, 'API_HASH': API_HASH, 'SESSION_STRING': SESSION_STRING,
+        'SOURCE_CHANNEL': SOURCE_CHANNEL, 'DESTINATION_CHANNEL': DESTINATION_CHANNEL,
+        'LOG_BOT_TOKEN': LOG_BOT_TOKEN, 'LOG_CHANNEL_ID': LOG_CHANNEL_ID
+    }
+    missing_vars = [name for name, var in required_vars.items() if not var]
+    if missing_vars:
+        print(f"🔴 FATAL ERROR: Missing required environment variables: {', '.join(missing_vars)}")
         return
 
-    # --- 2. PHASE 1: PARSE range.txt INTO A TASK LIST ---
+    # Initialize the logging bot
+    log_bot = Bot(token=LOG_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+    await send_log(log_bot, "🚀 <b>Poll Forwarder Initialized</b>\nScript is starting up...")
+
+    # --- 2. PARSE range.txt ---
     tasks = []
     try:
         with open('range.txt', 'r') as f:
             lines = f.readlines()
-        
+
         start_id = None
         for line_num, line in enumerate(lines, 1):
             line = line.strip()
@@ -49,77 +100,115 @@ async def main():
             key, value = parts[0].strip().lower(), parts[1].strip()
 
             if key == 'message':
-                tasks.append({'type': 'message', 'content': value, 'line': line_num})
+                tasks.append({'type': 'message', 'content': value})
             elif key == 'start':
                 start_id = parse_id(value)
             elif key == 'end' and start_id is not None:
                 end_id = parse_id(value)
-                tasks.append({'type': 'range', 'start': start_id, 'end': end_id, 'line': line_num})
+                tasks.append({'type': 'range', 'start': start_id, 'end': end_id})
                 start_id = None
-        
+
         if not tasks:
-             raise ValueError("range.txt contains no valid tasks.")
-        print(f"✅ Successfully parsed range.txt. Found {len(tasks)} tasks to execute.")
+            raise ValueError("range.txt contains no valid tasks.")
+        
+        print(f"{console_prefix} Successfully parsed {len(tasks)} tasks from range.txt.")
+        await send_log(log_bot, f"✅ <b>Tasks Parsed</b>\nFound <code>{len(tasks)}</code> tasks in <code>range.txt</code> to execute.")
 
     except Exception as e:
-        print(f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}")
+        error_message = f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}"
+        print(error_message)
+        await send_log(log_bot, f"💥 <b>Fatal Error</b>\nFailed to parse <code>range.txt</code>.\n\n<b>Details:</b>\n<code>{e}</code>")
         return
 
-    # --- 3. TELEGRAM CLIENT INITIALIZATION ---
-    client = TelegramClient(StringSession(session_string), api_id, api_hash, timeout=60)
+    # --- 3. INITIALIZE TELETHON CLIENT ---
+    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, timeout=60)
+    stats = {'polls_forwarded': 0, 'non_polls_skipped': 0, 'errors': 0}
+    start_time = datetime.now()
 
-    async with client:
-        print("✅ Telegram client connected.")
+    async with client, log_bot.context():
+        print(f"{console_prefix} Telegram client connecting...")
         me = await client.get_me()
-        print(f"✅ Successfully connected as user: {me.first_name} (ID: {me.id})")
+        print(f"{console_prefix} Successfully connected as: {me.first_name} (ID: {me.id})")
+        await send_log(log_bot, f"👤 <b>Client Connected</b>\nLogged in as: <code>{me.first_name} {me.last_name or ''}</code>")
         
         try:
-            source_entity = await client.get_entity(source_channel_id)
-            destination_entity = await client.get_entity(destination_channel_id)
-            print(f"✅ Source entity found: '{source_entity.title}'")
-            print(f"✅ Destination entity found: '{destination_entity.title}'")
+            source_entity = await client.get_entity(SOURCE_CHANNEL)
+            destination_entity = await client.get_entity(DESTINATION_CHANNEL)
+            print(f"{console_prefix} Source: '{source_entity.title}'")
+            print(f"{console_prefix} Destination: '{destination_entity.title}'")
+            await send_log(log_bot, (
+                f"🎯 <b>Channels Verified</b>\n"
+                f"<b>Source:</b> <code>{source_entity.title}</code>\n"
+                f"<b>Destination:</b> <code>{destination_entity.title}</code>"
+            ))
         except Exception as e:
-            print(f"🔴 FATAL ERROR: Could not find one of the channels. Details: {e}")
+            error_msg = f"🔴 FATAL ERROR: Could not find one of the channels. Details: {e}"
+            print(error_msg)
+            await send_log(log_bot, f"💥 <b>Fatal Error</b>\nCould not resolve channels.\n\n<b>Details:</b>\n<code>{e}</code>")
             return
 
-        # --- 4. PHASE 2: EXECUTE THE TASK LIST ---
-        print("\n--- Starting to execute tasks ---")
+        # --- 4. EXECUTE TASKS ---
         for i, task in enumerate(tasks, 1):
+            task_header = f"▶️ <b>Executing Task {i}/{len(tasks)}:</b> <code>{task['type'].upper()}</code>"
+            await send_log(log_bot, task_header)
+            
             try:
                 if task['type'] == 'message':
-                    print(f"\n[{i}/{len(tasks)}] Executing Task: Send custom message...")
                     await client.send_message(destination_entity, task['content'])
-                    print(f"  -> ✅ SENT: Custom message sent successfully.")
-                    await asyncio.sleep(random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS))
+                    stats['polls_forwarded'] += 1 # Counting custom messages as a success
+                    await send_log(log_bot, f"  ✍️ <b>Custom Message Sent:</b> \"{task['content'][:50]}...\"")
 
                 elif task['type'] == 'range':
-                    print(f"\n[{i}/{len(tasks)}] Executing Task: Process poll range {task['start']}-{task['end']}...")
-                    message_ids_for_batch = list(range(task['start'], task['end'] + 1))
+                    range_info = f"Processing poll range <code>{task['start']}-{task['end']}</code>..."
+                    await send_log(log_bot, f"  🔎 {range_info}")
                     
-                    messages_in_batch = await client.get_messages(source_entity, ids=message_ids_for_batch)
-                    valid_messages = [m for m in messages_in_batch if m]
-                    print(f"  -> Found {len(valid_messages)} messages in this batch.")
+                    message_ids = list(range(task['start'], task['end'] + 1))
+                    messages = await client.get_messages(source_entity, ids=message_ids)
+                    valid_messages = [m for m in messages if m]
 
+                    await send_log(log_bot, f"  📥 Found <code>{len(valid_messages)}</code> existing messages in the range.")
+                    
                     for message in valid_messages:
-                        print(f"    Processing Message ID: {message.id}...")
+                        delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
                         if message.poll:
-                            print("      -> DETECTED: Message is a poll. Forwarding...")
                             await message.forward_to(destination_entity)
-                            print(f"      -> ✅ FORWARDED: Poll from message ID {message.id}.")
+                            stats['polls_forwarded'] += 1
+                            print(f"  ✅ FORWARDED: Poll from message ID {message.id}.")
+                            await asyncio.sleep(delay)
                         else:
-                            print("      -> INFO: Message is not a poll. Ignoring.")
-                        
-                        await asyncio.sleep(random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS))
+                            stats['non_polls_skipped'] += 1
+                            print(f"  🟡 SKIPPED: Message ID {message.id} is not a poll.")
+                            # Optional: Log every skip to avoid channel spam
+                            # await send_log(log_bot, f"  - Skipping ID {message.id} (not a poll)")
 
             except FloodWaitError as e:
-                print(f"  -> 🟡 WARNING: FloodWaitError on task {i}. Pausing for {e.seconds + 5} seconds.")
-                await asyncio.sleep(e.seconds + 5)
-            except Exception:
-                print(f"  -> 🔴 ERROR: An unexpected error occurred on task {i}.")
+                wait_time = e.seconds + 5
+                stats['errors'] += 1
+                warning_msg = f"🟡 <b>FloodWaitError on Task {i}</b>. Pausing for <code>{wait_time}</code> seconds."
+                print(f"{console_prefix} {warning_msg}")
+                await send_log(log_bot, warning_msg)
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                stats['errors'] += 1
+                error_summary = f"🔴 <b>Error on Task {i}</b>: <code>{type(e).__name__}</code>"
+                print(f"{console_prefix} {error_summary}. Details in traceback.")
                 traceback.print_exc()
+                await send_log(log_bot, f"{error_summary}\n<b>Details:</b> <code>{str(e)}</code>")
 
+        # --- 5. FINAL REPORT ---
+        end_time = datetime.now()
+        duration = str(end_time - start_time).split('.')[0]
+        summary = (
+            f"🎉 <b>All Tasks Complete!</b> 🎉\n\n"
+            f"<b>📊 Final Stats:</b>\n"
+            f"  - <b>Polls Forwarded:</b> <code>{stats['polls_forwarded']}</code>\n"
+            f"  - <b>Non-Polls Skipped:</b> <code>{stats['non_polls_skipped']}</code>\n"
+            f"  - <b>Errors Encountered:</b> <code>{stats['errors']}</code>\n\n"
+            f"⏱️ <b>Total Duration:</b> <code>{duration}</code>"
+        )
         print("\n--- ✅ All tasks complete ---")
+        await send_log(log_bot, summary)
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+            

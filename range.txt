@@ -1,7 +1,15 @@
-message: মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন - Master QB
-start:51613
-end:52425
+Message:পরিবেশ রসায়ন - Master QB
+Start:98180
+End:98865
 
-message: রাসায়নিক পরিবর্তন - Master QB
-start:53774
-end:54322
+Message:জৈব রসায়ন - Master QB
+Start:18986
+End:20034
+
+Message: পরিমানগত রসায়ন - Master QB
+Start:85955
+End:85846
+
+Message:তড়িৎ রসায়ন - Master QB
+Start:97296
+End:97764

@@ -1,7 +1,7 @@
-message:সেমিকন্ডাক্টর ও ইলেকট্রনিকস - Master QB
-start:46116
-end:46388
+message:ল্যাবরেটরির নিরাপদ ব্যবহার - Master QB
+start:4159
+end:4543
 
-message:জ্যোতির্বিজ্ঞান - Master QB 
-start:46412
-end:46612
+message:গুনগত রসায়ন - Master QB
+start:4547
+end:5385

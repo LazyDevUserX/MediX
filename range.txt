@@ -1,15 +1,3 @@
-Message:পরিবেশ রসায়ন - Master QB
-Start:98180
-End:98865
-
-Message:জৈব রসায়ন - Master QB
-Start:18986
-End:20034
-
 Message: পরিমানগত রসায়ন - Master QB
-Start:85955
+Start:85255
 End:85846
-
-Message:তড়িৎ রসায়ন - Master QB
-Start:97296
-End:97764

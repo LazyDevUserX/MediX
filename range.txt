@@ -1,7 +1,7 @@
-message:ল্যাবরেটরির নিরাপদ ব্যবহার - Master QB
-start:4159
-end:4543
+message: মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন - Master QB
+start:51613
+end:52425
 
-message:গুনগত রসায়ন - Master QB
-start:4547
-end:5385
+message: রাসায়নিক পরিবর্তন - Master QB
+start:53774
+end:54322

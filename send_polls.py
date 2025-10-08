@@ -5,14 +5,15 @@ import json
 import glob
 from telegram import Bot
 from telegram.error import BadRequest
-from telegram.helpers import escape_markdown # NEW: Import the escape function
+from telegram.helpers import escape_markdown
 
 # Allow nested asyncio
 nest_asyncio.apply()
 
 # ====== CONFIGURATION ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+# MODIFIED: Chat ID is now hardcoded directly into the script
+CHAT_ID = -1002478655415 
 
 # ====== FUNCTIONS ======
 
@@ -49,6 +50,7 @@ async def send_error_to_telegram(bot, error_message):
 async def process_content():
     """Main function to process and send all content from the JSON file."""
     if not BOT_TOKEN or not CHAT_ID:
+        # This check will now fail if you remove the CHAT_ID line above
         print("❌ Error: BOT_TOKEN or CHAT_ID is not set. Aborting.")
         return
 
@@ -78,7 +80,6 @@ async def process_content():
                 explanation_text = item.get('explanation')
                 correct_option_id = item.get('correct_option')
 
-                # CASE 1: It's a QUIZ poll (a correct answer is provided)
                 if correct_option_id is not None:
                     print("    Type: Quiz Poll")
                     try:
@@ -103,19 +104,17 @@ async def process_content():
                                 correct_option_id=correct_option_id,
                                 explanation=None
                             )
-                            # MODIFIED: Escape the explanation text to prevent parsing errors
                             escaped_explanation = escape_markdown(explanation_text, version=2)
                             full_text = f"_*Explanation:*_\n{escaped_explanation}"
                             
                             await bot.send_message(
                                 chat_id=CHAT_ID,
                                 text=full_text,
-                                parse_mode='MarkdownV2' # MODIFIED: Use MarkdownV2 for better escaping
+                                parse_mode='MarkdownV2'
                             )
                         else:
                             raise 
                 
-                # CASE 2: It's a REGULAR poll (correct_option is null)
                 else:
                     print("    Type: Regular Poll")
                     await bot.send_poll(
@@ -128,7 +127,6 @@ async def process_content():
 
                     if explanation_text:
                         explanation_header = "📝 *Explanation*" 
-                        # MODIFIED: Escape the explanation text to prevent parsing errors
                         escaped_explanation = escape_markdown(explanation_text, version=2)
                         full_explanation = f"{explanation_header}\n\n{escaped_explanation}"
                         
@@ -136,7 +134,7 @@ async def process_content():
                         await bot.send_message(
                             chat_id=CHAT_ID,
                             text=full_explanation,
-                            parse_mode='MarkdownV2' # MODIFIED: Use MarkdownV2 for better escaping
+                            parse_mode='MarkdownV2'
                         )
 
             await asyncio.sleep(4)
@@ -151,3 +149,4 @@ async def process_content():
 # ====== MAIN EXECUTION BLOCK ======
 if __name__ == "__main__":
     asyncio.run(process_content())
+                        

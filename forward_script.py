@@ -38,13 +38,17 @@ def parse_id(value):
     if value.isdigit():
         return int(value)
     elif '/' in value:
-        return int(value.split('/')[-1])
+        try:
+            return int(value.split('/')[-1])
+        except (ValueError, IndexError):
+            raise ValueError(f"Invalid message link format: {value}")
     else:
         raise ValueError(f"Invalid format for message ID: {value}")
 
 async def send_log(client: TelegramClient, log_channel_id: int, text: str):
     """Sends a formatted message to the log channel using the main client."""
     if not client or not log_channel_id:
+        print(f"Log Message (not sent): {text}")
         return
     try:
         await client.send_message(
@@ -72,24 +76,17 @@ async def main():
     }
     missing_vars = [name for name, var in required_vars.items() if not var]
     if missing_vars:
-        print(f"🔴 FATAL ERROR: Missing GitHub Secrets: {', '.join(missing_vars)}")
-        return
-
-    try:
-        log_channel_int_id = int(LOG_CHANNEL_ID)
-    except ValueError:
-        print(f"🔴 FATAL ERROR: LOG_CHANNEL_ID is not a valid integer: '{LOG_CHANNEL_ID}'")
+        print(f"🔴 FATAL ERROR: Missing required environment variables/secrets: {', '.join(missing_vars)}")
         return
 
     # --- 2. PARSE range.txt ---
     tasks = []
-    # (Parsing logic remains the same)
     try:
         with open('range.txt', 'r') as f:
             lines = f.readlines()
 
         start_id = None
-        for line_num, line in enumerate(lines, 1):
+        for line in lines:
             line = line.strip()
             if not line or line.startswith('#'): continue
             parts = line.split(':', 1)
@@ -109,14 +106,24 @@ async def main():
              raise ValueError("range.txt contains no valid tasks.")
         print(f"{console_prefix} Successfully parsed {len(tasks)} tasks from range.txt.")
 
+    except FileNotFoundError:
+        print("🔴 FATAL ERROR: `range.txt` not found. Please create the file.")
+        return
     except Exception as e:
-        print(f"🔴 FATAL ERROR: Could not read or parse range.txt. Details: {e}")
+        print(f"🔴 FATAL ERROR: Could not read or parse `range.txt`. Details: {e}")
         return
 
     # --- 3. INITIALIZE AND EXECUTE ---
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, timeout=60)
     stats = {'polls_forwarded': 0, 'non_polls_skipped': 0, 'errors': 0}
     start_time = datetime.now()
+    log_channel_int_id = 0 # Initialize to handle early errors
+
+    try:
+        log_channel_int_id = int(LOG_CHANNEL_ID)
+    except (ValueError, TypeError):
+         print(f"🔴 FATAL ERROR: LOG_CHANNEL_ID ('{LOG_CHANNEL_ID}') is not a valid integer.")
+         return
 
     async with client:
         await send_log(client, log_channel_int_id, "🚀 <b>Poll Forwarder Initialized</b>\nScript is starting up...")
@@ -124,18 +131,30 @@ async def main():
         me = await client.get_me()
         await send_log(client, log_channel_int_id, f"👤 <b>Client Connected</b>\nLogged in as: <code>{me.first_name} {me.last_name or ''}</code>")
         
+        # --- ROBUSTNESS UPDATE: Verify all channels using integer IDs ---
         try:
-            source_entity = await client.get_entity(SOURCE_CHANNEL)
-            destination_entity = await client.get_entity(DESTINATION_CHANNEL)
-            await client.get_entity(log_channel_int_id)
+            # Convert all channel IDs to integers for reliability and fail early if invalid
+            source_id = int(SOURCE_CHANNEL)
+            destination_id = int(DESTINATION_CHANNEL)
+            
+            # Now get the entities using the verified integer IDs
+            source_entity = await client.get_entity(source_id)
+            destination_entity = await client.get_entity(destination_id)
+            log_entity = await client.get_entity(log_channel_int_id)
+            
             await send_log(client, log_channel_int_id, (
                 f"🎯 <b>Channels Verified</b>\n"
-                f"<b>Source:</b> <code>{source_entity.title}</code>\n"
-                f"<b>Destination:</b> <code>{destination_entity.title}</code>\n"
-                f"<b>Logs:</b> OK"
+                f"<b>Source:</b> <code>{source_entity.title} ({source_id})</code>\n"
+                f"<b>Destination:</b> <code>{destination_entity.title} ({destination_id})</code>\n"
+                f"<b>Logs:</b> <code>{log_entity.title} ({log_channel_int_id})</code>"
             ))
+        except ValueError:
+            error_msg = "💥 <b>Fatal Error</b>\nOne of the channel IDs in your secrets is not a valid integer. Please check `SOURCE_CHANNEL`, `DESTINATION_CHANNEL`, and `LOG_CHANNEL_ID`."
+            await send_log(client, log_channel_int_id, error_msg)
+            return
         except Exception as e:
-            await send_log(client, log_channel_int_id, f"💥 <b>Fatal Error</b>\nCould not resolve channels.\n\n<b>Details:</b>\n<code>{e}</code>")
+            error_msg = f"💥 <b>Fatal Error</b>\nCould not resolve one of the channels. <b>Ensure your account has joined all three channels.</b>\n\n<b>Details:</b>\n<code>{e}</code>"
+            await send_log(client, log_channel_int_id, error_msg)
             return
 
         # --- 4. EXECUTE TASKS (Main Loop) ---
@@ -146,27 +165,23 @@ async def main():
             try:
                 if task['type'] == 'message':
                     await client.send_message(destination_entity, task['content'])
-                    stats['polls_forwarded'] += 1
+                    stats['polls_forwarded'] += 1 # Counting this as a successful "forward"
                     await send_log(client, log_channel_int_id, f"  ✍️ <b>Custom Message Sent:</b> \"{task['content'][:50]}...\"")
 
-                # --- MODIFIED: BATCH PROCESSING LOGIC ---
                 elif task['type'] == 'range':
                     start, end = task['start'], task['end']
                     range_info = f"Processing poll range <code>{start}-{end}</code> in batches of {BATCH_SIZE}."
                     await send_log(client, log_channel_int_id, f"  🔎 {range_info}")
                     
-                    # Loop through the total range in chunks of BATCH_SIZE
                     for batch_start in range(start, end + 1, BATCH_SIZE):
                         batch_end = min(batch_start + BATCH_SIZE - 1, end)
                         batch_ids = list(range(batch_start, batch_end + 1))
-                        
-                        print(f"  Fetching batch: {batch_start}-{batch_end}")
                         
                         messages = await client.get_messages(source_entity, ids=batch_ids)
                         valid_messages = [m for m in messages if m]
 
                         if valid_messages:
-                           await send_log(client, log_channel_int_id, f"  - Processing batch <code>{batch_start}-{batch_end}</code>, found {len(valid_messages)} messages.")
+                           await send_log(client, log_channel_int_id, f"  - Processing batch <code>{batch_start}-{batch_end}</code>, found {len(valid_messages)} valid messages.")
                         
                         for message in valid_messages:
                             delay = random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
@@ -177,15 +192,13 @@ async def main():
                                 await asyncio.sleep(delay)
                             else:
                                 stats['non_polls_skipped'] += 1
-                                # Skipping is a normal operation, so we don't log it to avoid spam
                         
-                        # Small pause between batches to be safe
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(1) # Small pause between batches
 
             except FloodWaitError as e:
                 wait_time = e.seconds + 5
                 stats['errors'] += 1
-                warning_msg = f"🟡 <b>FloodWaitError</b>. Pausing for <code>{wait_time}</code> seconds."
+                warning_msg = f"🟡 <b>FloodWaitError</b>. Pausing script for <code>{wait_time}</code> seconds."
                 await send_log(client, log_channel_int_id, warning_msg)
                 await asyncio.sleep(wait_time)
             except Exception as e:
@@ -209,3 +222,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+        
